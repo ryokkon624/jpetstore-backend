@@ -1,0 +1,128 @@
+plugins {
+    id 'java'
+    id 'groovy'
+    id 'org.springframework.boot' version '4.1.0'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'
+    id 'com.diffplug.spotless' version '6.25.0'
+}
+
+group = 'com.example.jpetstore'
+version = '0.0.1-SNAPSHOT'
+description = 'jpetstore-backend'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+
+    mybatisGenerator
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // MyBatis
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:4.1.0'
+
+    // Spring Security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // AOP（WHOカラム自動付与のアスペクトで使用）
+    implementation 'org.aspectj:aspectjweaver'
+
+    // JWT (jjwt) — Phase3 の JWT httpOnly Cookie 認証で使用
+    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    implementation 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    implementation 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    // OpenAPI / Swagger UI
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // DevTools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // MySQL Driver
+    runtimeOnly 'com.mysql:mysql-connector-j:9.5.0'
+
+    // MyBatis Generator（スキーマ → entity/mapper 生成）
+    mybatisGenerator 'com.mysql:mysql-connector-j:9.5.0'
+    mybatisGenerator 'org.mybatis.generator:mybatis-generator-core:1.4.2'
+
+    // テスト系
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter-test:4.1.0'
+
+    // Spock（Groovy 5 用）
+    testImplementation platform('org.spockframework:spock-bom:2.4-groovy-5.0')
+    testImplementation 'org.spockframework:spock-core'
+    testImplementation 'org.spockframework:spock-spring'
+
+    // Testcontainers（統合テスト用）
+    testImplementation 'org.testcontainers:mysql:1.21.4'
+    testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+    testImplementation 'org.testcontainers:testcontainers:1.21.4'
+    testImplementation 'org.springframework.boot:spring-boot-starter-flyway'
+    testImplementation 'org.flywaydb:flyway-mysql'
+
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// UT用タスク（integration タグは除外）
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
+    finalizedBy jacocoTestReport
+}
+
+tasks.register('mybatisGenerator', JavaExec) {
+    group = 'mybatis'
+    description = 'Run MyBatis Generator'
+
+    classpath = configurations.mybatisGenerator
+    mainClass = 'org.mybatis.generator.api.ShellRunner'
+
+    args = [
+            '-configfile', 'src/main/resources/generator/generatorConfig.xml',
+            '-overwrite'
+    ]
+}
+
+jacoco {
+    toolVersion = "0.8.12"
+}
+
+jacocoTestReport {
+    dependsOn test
+}
+
+tasks.register('generateEnums', JavaExec) {
+    group = 'codegen'
+    description = 'Generate enum classes from m_code'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.example.jpetstore.backend.tool.EnumGenerator'
+}
+
+spotless {
+    java {
+        // Google Java Format を使用
+        googleJavaFormat('1.32.0')
+    }
+}

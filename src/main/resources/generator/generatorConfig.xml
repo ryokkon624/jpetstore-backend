@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE generatorConfiguration PUBLIC "-//mybatis.org//DTD MyBatis Generator Configuration 1.0//EN" "https://mybatis.org/dtd/mybatis-generator-config_1_0.dtd">
+
+<generatorConfiguration>
+
+    <!-- Context: MySQL -->
+    <context id="MySQLTables" targetRuntime="MyBatis3" defaultModelType="flat">
+        <property name="javaFileEncoding" value="UTF-8" />
+
+        <!-- enableSelectByExample → selectAllをExampleで実現するためtrue -->
+        <property name="autoDelimitKeywords" value="true" />
+        <property name="beginningDelimiter" value="`" />
+        <property name="endingDelimiter" value="`" />
+
+        <!-- コメント必要ないので抑止 -->
+        <commentGenerator>
+            <property name="suppressAllComments" value="true" />
+            <property name="suppressDate" value="true" />
+        </commentGenerator>
+
+        <!-- DB接続 -->
+        <jdbcConnection
+            driverClass="com.mysql.cj.jdbc.Driver"
+            connectionURL="jdbc:mysql://localhost:3306/jpetstore_db?useUnicode=true&amp;characterEncoding=UTF-8&amp;serverTimezone=Asia/Tokyo"
+            userId="jpetstore"
+            password="jpetstore">
+        </jdbcConnection>
+
+        <!-- Java型マッピング -->
+        <javaTypeResolver>
+            <property name="forceBigDecimals" value="false" />
+        </javaTypeResolver>
+
+        <!-- 出力先：MBG生成のEntityは infrastructure 配下に -->
+        <javaModelGenerator
+            targetPackage="com.example.jpetstore.backend.infrastructure.mybatis.generated.entity"
+            targetProject="src/main/java">
+            <property name="trimStrings" value="true" />
+        </javaModelGenerator>
+
+        <!-- ★ DTD の順番どおりに sqlMap → javaClient の順にする -->
+
+        <!-- 出力先：Mapper XML -->
+        <sqlMapGenerator targetPackage="mapper.generated"
+            targetProject="src/main/resources">
+        </sqlMapGenerator>
+
+        <!-- 出力先：Mapperインタフェース（生成物） -->
+        <javaClientGenerator type="XMLMAPPER"
+            targetPackage="com.example.jpetstore.backend.infrastructure.mybatis.generated.mapper"
+            targetProject="src/main/java">
+        </javaClientGenerator>
+
+        <!-- テーブル追加した場合は、SQLを発行して結果を張り付けてください -->
+        <!--
+            SELECT
+                concat(
+                    '<table tableName="'
+                    , t.table_name
+                    , '" '
+                    , 'enableCountByExample="false" '
+                    , 'enableUpdateByExample="false" '
+                    , 'enableDeleteByExample="false" '
+                    , 'enableSelectByExample="true" '
+                    , 'selectByExampleQueryId="false">'
+                    , CASE
+                        WHEN pk.column_name IS NOT NULL
+                            THEN concat(
+                            '<generatedKey column="'
+                            , pk.column_name
+                            , '" sqlStatement="JDBC" identity="true"/>'
+                        )
+                        ELSE ''
+                        END
+                    , '</table>'
+                ) AS mbg_table_def
+            FROM
+                information_schema.tables t
+                LEFT JOIN (
+                    SELECT
+                        table_schema
+                        , table_name
+                        , column_name
+                    FROM
+                        information_schema.columns
+                    WHERE
+                        table_schema = 'jpetstore_db'
+                        AND extra LIKE '%auto_increment%'
+                        AND column_key = 'PRI'
+                ) pk
+                    ON pk.table_schema = t.table_schema
+                    AND pk.table_name = t.table_name
+            WHERE
+                t.table_schema = 'jpetstore_db'
+                AND (
+                    t.table_name LIKE 'm\_%' ESCAPE '\\'
+                    OR t.table_name LIKE 't\_%' ESCAPE '\\'
+                )
+            ORDER BY
+                t.table_name;
+         -->
+        <!-- テーブル未定義のため <table> 要素はまだ入れない。スキーマ確定後、上記SQLの結果をここに貼り付ける。 -->
+
+    </context>
+</generatorConfiguration>
