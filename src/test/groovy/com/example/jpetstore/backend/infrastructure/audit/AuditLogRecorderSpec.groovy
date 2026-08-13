@@ -42,6 +42,20 @@ class AuditLogRecorderSpec extends IntegrationTestBase {
         row.update_program != null
     }
 
+    def "X-Forwarded-Forヘッダがあっても無条件に信頼せずgetRemoteAddr()を使う(レビュー指摘対応)"() {
+        given: "信頼できないプロキシ設定を想定し、XFFヘッダを偽装したリクエスト"
+        def request = new MockHttpServletRequest()
+        request.setRemoteAddr("203.0.113.10")
+        request.addHeader("X-Forwarded-For", "198.51.100.99")
+
+        when:
+        recorder.recordAuthzFailure("SecuredPingController#ping", "insufficient role", request)
+
+        then:
+        def row = jdbcTemplate.queryForMap("SELECT * FROM t_audit_log ORDER BY audit_id DESC LIMIT 1")
+        row.client_ip == "203.0.113.10"
+    }
+
     def "recordStateChangeは指定したevent_type=STATE_CHANGEで1行記録する"() {
         when:
         recorder.recordStateChange("ORDER_CREATE", "ORDER", "123", "SUCCESS", [orderId: 123, total: 45.6])

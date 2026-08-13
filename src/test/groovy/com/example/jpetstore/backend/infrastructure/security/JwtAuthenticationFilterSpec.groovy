@@ -57,6 +57,23 @@ class JwtAuthenticationFilterSpec extends Specification {
         chain.request != null
     }
 
+    def "refresh tokenをACCESS_TOKEN Cookieに入れても認証されない(型混同拒否)"() {
+        given:
+        def user = new AuthenticatedUser(9L, "j2ee", ["ADMIN"])
+        def refreshToken = jwtService.generateRefreshToken(user)
+        def request = new MockHttpServletRequest()
+        request.setCookies(new jakarta.servlet.http.Cookie(AuthCookieSupport.ACCESS_TOKEN_COOKIE, refreshToken))
+        def response = new MockHttpServletResponse()
+        def chain = new MockFilterChain()
+
+        when:
+        filter.doFilter(request, response, chain)
+
+        then:
+        SecurityContextHolder.getContext().authentication == null
+        chain.request != null
+    }
+
     def "改ざんされたaccess tokenのCookieならSecurityContextに何もセットせずchainを継続する(例外を投げない)"() {
         given:
         def request = new MockHttpServletRequest()

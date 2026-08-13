@@ -38,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       throws ServletException, IOException {
     cookieSupport
         .readCookie(request, AuthCookieSupport.ACCESS_TOKEN_COOKIE)
-        .flatMap(jwtService::parseToken)
+        .flatMap(jwtService::parseAccessToken)
         .ifPresent(this::authenticate);
     filterChain.doFilter(request, response);
   }

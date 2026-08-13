@@ -89,13 +89,17 @@ public class AuditLogRecorder {
     }
   }
 
+  /**
+   * レビュー指摘対応（secure-by-default）: {@code X-Forwarded-For} はクライアントが自由に送れるヘッダであり、
+   * 信頼できるリバースプロキシ構成（プロキシがヘッダを上書きする設定）が前提に無い限り無条件に信頼すると 監査ログの {@code client_ip}
+   * を偽装されうる。現状は信頼プロキシ構成が無いため、常に {@code request.getRemoteAddr()} を使う。
+   *
+   * <p>TODO: リバースプロキシ配下で運用する場合（infra/後続対応）、信頼できるプロキシの実 IP からの リクエストに限り {@code X-Forwarded-For}
+   * の最左端（オリジナルクライアント）を採用する方式へ拡張する。
+   */
   private String clientIp(HttpServletRequest request) {
     if (request == null) {
       return null;
-    }
-    String forwarded = request.getHeader("X-Forwarded-For");
-    if (forwarded != null && !forwarded.isBlank()) {
-      return forwarded.split(",")[0].trim();
     }
     return request.getRemoteAddr();
   }

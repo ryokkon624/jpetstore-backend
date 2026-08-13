@@ -116,6 +116,16 @@ class SecurityEndToEndSpec extends IntegrationTestBase {
                 .andExpect(status().isUnauthorized())
     }
 
+    def "access tokenをREFRESH_TOKEN Cookieに入れて/api/auth/refreshを叩くと401になる(型混同拒否)"() {
+        given:
+        def user = new AuthenticatedUser(5L, "j2ee", ["USER"])
+        def accessTokenAsRefreshCookie = new Cookie(AuthCookieSupport.REFRESH_TOKEN_COOKIE, jwtService.generateAccessToken(user))
+
+        expect:
+        mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(accessTokenAsRefreshCookie))
+                .andExpect(status().isUnauthorized())
+    }
+
     def "有効なrefresh CookieならPOST /api/auth/refreshで新しいACCESS_TOKENが発行される(204)"() {
         given:
         def user = new AuthenticatedUser(3L, "j2ee", ["USER"])
@@ -130,6 +140,6 @@ class SecurityEndToEndSpec extends IntegrationTestBase {
         def accessCookieHeader = result.response.getHeaders("Set-Cookie").find { it.startsWith("ACCESS_TOKEN=") }
         accessCookieHeader != null
         def newToken = accessCookieHeader.split(";")[0].split("=", 2)[1]
-        jwtService.parseToken(newToken).isPresent()
+        jwtService.parseAccessToken(newToken).isPresent()
     }
 }

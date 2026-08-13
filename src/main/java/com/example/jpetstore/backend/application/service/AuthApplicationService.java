@@ -43,7 +43,7 @@ public class AuthApplicationService {
 
     AuthenticatedUser user =
         jwtService
-            .parseToken(refreshToken)
+            .parseRefreshToken(refreshToken)
             .orElseThrow(
                 () ->
                     new InsufficientAuthenticationException("Refresh token is invalid or expired"));
