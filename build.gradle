@@ -42,10 +42,10 @@ dependencies {
     // AOP（WHOカラム自動付与のアスペクトで使用）
     implementation 'org.aspectj:aspectjweaver'
 
-    // JWT (jjwt) — Phase3 の JWT httpOnly Cookie 認証で使用
-    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
-    implementation 'io.jsonwebtoken:jjwt-impl:0.11.5'
-    implementation 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+    // JWT (jjwt) — JWT httpOnly Cookie 認証で使用（AC6: 0.11.5 は EOL 傾向のため 0.12.6 に更新）
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 
     // OpenAPI / Swagger UI
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
@@ -67,6 +67,8 @@ dependencies {
     // テスト系
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter-test:4.1.0'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 
     // Spock（Groovy 5 用）
     testImplementation platform('org.spockframework:spock-bom:2.4-groovy-5.0')
@@ -89,6 +91,20 @@ tasks.named('test') {
         excludeTags 'integration'
     }
     finalizedBy jacocoTestReport
+}
+
+// IT用タスク（integration タグのみ。Testcontainers で Docker が必要）
+tasks.register('integrationTest', Test) {
+    group = 'verification'
+    description = 'Runs integration tests (Testcontainers, requires Docker).'
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+    shouldRunAfter test
+}
+
+check {
+    dependsOn integrationTest
 }
 
 tasks.register('mybatisGenerator', JavaExec) {
@@ -118,6 +134,18 @@ tasks.register('generateEnums', JavaExec) {
 
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.example.jpetstore.backend.tool.EnumGenerator'
+}
+
+// 統合テスト用スキーマ SQL を jpetstore-database（兄弟ディレクトリ）から同期する。
+// src/test/resources/flyway/sql/README.md 参照。
+tasks.register('syncTestSchema', Copy) {
+    group = 'verification'
+    description = 'Sync test schema SQL from ../jpetstore-database/flyway/sql'
+
+    from('../jpetstore-database/flyway/sql') {
+        include '*.sql'
+    }
+    into 'src/test/resources/flyway/sql'
 }
 
 spotless {

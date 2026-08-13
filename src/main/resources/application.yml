@@ -1,13 +1,20 @@
 server:
   port: 8080
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+    include-exception: false
 
 spring:
   application:
     name: jpetstore-backend
   datasource:
     url: jdbc:mysql://localhost:3306/jpetstore_db?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Tokyo
-    username: jpetstore
-    password: jpetstore
+    # AC5/AC-neg1 (SBD-11): 秘密をソースに置かない。デフォルト値を持たせず、未設定なら起動失敗（fail-fast）。
+    # ローカル開発は .env（gitignore対象）を参照。詳細は README「秘密管理（環境変数）」参照。
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 mybatis:
@@ -25,3 +32,13 @@ management:
     web:
       exposure:
         include: health,info
+
+jwt:
+  # AC5/AC-neg1 (SBD-11): 署名鍵もデフォルト値なし。未設定なら起動失敗（fail-fast）。最小鍵長は起動時に検証する。
+  secret: ${JWT_SECRET}
+  access-token-ttl: PT15M
+  refresh-token-ttl: P7D
+  cookie:
+    # SPA が same-site で配信されない場合は Lax に切り替える（README 参照）。
+    same-site: Strict
+    secure: true
