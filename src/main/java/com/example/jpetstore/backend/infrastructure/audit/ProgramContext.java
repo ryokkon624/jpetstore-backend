@@ -1,11 +1,12 @@
 package com.example.jpetstore.backend.infrastructure.audit;
 
 /**
- * WHOカラム（create_program / update_program）に記録する「機能識別子（ClassName#method）」を、 リクエストを処理するスレッド内で保持する ThreadLocal
- * ホルダー。
+ * WHOカラム（create_program / update_program）に記録する「機能識別子（ClassName#method）」を、 リクエストを処理するスレッド内で保持する
+ * ThreadLocal ホルダー。
  *
  * <p>set-once 方式: 最初に設定した「最外の業務サービス」が owner となり、以降のネストした呼び出しでは 上書きされない。owner だけが最後に {@link
- * #clear()} を行う。値の設定・破棄は {@link ProgramContextAspect} が、 値の読み取りは {@link AuditProgramInterceptor} が担う。
+ * #clear()} を行う。値の設定・破棄は {@link ProgramContextAspect} が、 値の読み取りは {@link AuditProgramInterceptor}
+ * が担う。
  *
  * @see ProgramContextAspect
  * @see AuditProgramInterceptor

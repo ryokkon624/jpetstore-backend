@@ -12,16 +12,17 @@ import org.apache.ibatis.reflection.SystemMetaObject;
 import org.springframework.stereotype.Component;
 
 /**
- * INSERT / UPDATE 実行時に、対象エンティティの WHOカラム（{@code createProgram} / {@code updateProgram}）が 未設定なら {@link
- * ProgramContext} の値で補完する MyBatis インターセプタ。
+ * INSERT / UPDATE 実行時に、対象エンティティの WHOカラム（{@code createProgram} / {@code updateProgram}）が 未設定なら
+ * {@link ProgramContext} の値で補完する MyBatis インターセプタ。
  *
- * <p>{@code Executor#update} を intercept する。ThreadLocal が空（例: コントローラが業務サービスを 介さず直接 mapper を呼んだ等）の場合は
- * {@code "SYSTEM"} を記録する。既に明示設定された値は尊重する（set-once）。
+ * <p>{@code Executor#update} を intercept する。ThreadLocal が空（例: コントローラが業務サービスを 介さず直接 mapper
+ * を呼んだ等）の場合は {@code "SYSTEM"} を記録する。既に明示設定された値は尊重する（set-once）。
  *
- * <p><b>注意:</b> {@code param} が Map の場合、MyBatis の MetaObject は存在しないキーに対しても setter を 持つとみなし得るため、意図しない
- * put が起こり得る。本インターセプタは MyBatis Generator が生成した エンティティ（POJO）を param とする利用を前提とする。
+ * <p><b>注意:</b> {@code param} が Map の場合、MyBatis の MetaObject は存在しないキーに対しても setter を
+ * 持つとみなし得るため、意図しない put が起こり得る。本インターセプタは MyBatis Generator が生成した エンティティ（POJO）を param とする利用を前提とする。
  *
- * <p>mybatis-spring-boot-starter は {@link Interceptor} 型の {@code @Component} Bean を自動登録するため、 明示的な設定登録は不要。
+ * <p>mybatis-spring-boot-starter は {@link Interceptor} 型の {@code @Component} Bean を自動登録するため、
+ * 明示的な設定登録は不要。
  *
  * @see ProgramContext
  * @see ProgramContextAspect
@@ -42,8 +43,7 @@ public class AuditProgramInterceptor implements Interceptor {
     Object param = invocation.getArgs()[1];
     SqlCommandType type = ms.getSqlCommandType();
 
-    if (param != null
-        && (type == SqlCommandType.INSERT || type == SqlCommandType.UPDATE)) {
+    if (param != null && (type == SqlCommandType.INSERT || type == SqlCommandType.UPDATE)) {
       String program = ProgramContext.get();
       if (program == null || program.isBlank()) {
         program = FALLBACK_PROGRAM;
