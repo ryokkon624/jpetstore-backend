@@ -1,0 +1,39 @@
+{
+  "groups": [
+    {
+      "name": "jwt",
+      "description": "JWT 認証（httpOnly Cookie）の設定。credential を @Value で直接バインドするため対応する @ConfigurationProperties クラスが無く、IDE 補完/検証用にこのファイルで手書き宣言している。"
+    },
+    {
+      "name": "jwt.cookie",
+      "description": "JWT を格納する Cookie（ACCESS_TOKEN/REFRESH_TOKEN）の属性設定。"
+    }
+  ],
+  "properties": [
+    {
+      "name": "jwt.secret",
+      "type": "java.lang.String",
+      "description": "JWT (HS256) 署名鍵。環境変数 JWT_SECRET から供給する（デフォルト値なし・未設定なら起動失敗）。最小32byte。"
+    },
+    {
+      "name": "jwt.access-token-ttl",
+      "type": "java.time.Duration",
+      "description": "access token の有効期間。"
+    },
+    {
+      "name": "jwt.refresh-token-ttl",
+      "type": "java.time.Duration",
+      "description": "refresh token の有効期間。"
+    },
+    {
+      "name": "jwt.cookie.same-site",
+      "type": "java.lang.String",
+      "description": "JWT を格納する Cookie の SameSite 属性（Strict/Lax）。SPA が same-site で配信されない場合は Lax に切り替える。"
+    },
+    {
+      "name": "jwt.cookie.secure",
+      "type": "java.lang.Boolean",
+      "description": "JWT を格納する Cookie の Secure 属性。"
+    }
+  ]
+}

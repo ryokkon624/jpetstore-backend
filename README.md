@@ -23,17 +23,50 @@
 
 | パッケージ                                   | 役割                                             |
 | -------------------------------------------- | ------------------------------------------------ |
-| `presentation.rest`                          | REST コントローラ（例: `PingController`）        |
-| `application.service`                        | 業務サービス（WHO 自動付与の pointcut 対象）     |
+| `presentation.rest`                          | REST コントローラ（例: `PingController`・`AuthController`・`SecuredPingController`） |
+| `presentation.rest.exception`                | 正規化エラーハンドリング（`GlobalExceptionHandler`・`ErrorResponse`。AC4） |
+| `presentation.rest.security`                 | Security の応答系 SPI 実装（`AuditingAccessDeniedHandler`・`AuditingAuthenticationEntryPoint`。AC3/AC7） |
+| `application.service`                        | 業務サービス（WHO 自動付与の pointcut 対象。例: `AuthApplicationService`） |
 | `domain.enums`                               | 区分値 enum（`EnumGenerator` の**生成物**）      |
-| `infrastructure.audit`                       | WHO カラム自動付与（AOP + MyBatis Interceptor）  |
+| `domain.security`                            | 認証プリンシパル（`AuthenticatedUser`）と取得口（`CurrentUserProvider`）。AC2 |
+| `domain.exception`                           | 基底例外型（`ResourceNotFoundException`・`OptimisticLockConflictException`）。AC4/AC8 |
+| `domain.concurrency`                         | 並行制御ヘルパ（`AffectedRows`）。AC8            |
+| `infrastructure.audit`                       | WHO カラム自動付与（AOP + MyBatis Interceptor）＋監査ログ記録ファサード（`AuditLogRecorder`）。AC7 |
+| `infrastructure.security`                    | JWT 発行/検証・Cookie 読み書き・認証フィルタ・CSRF 補助フィルタ。AC3 |
 | `infrastructure.mybatis.generated.{entity,mapper}` | MyBatis Generator の**生成物**             |
-| `config`                                     | Spring 設定（`SecurityConfig` 等）               |
+| `infrastructure.mybatis.custom.{entity,mapper}` | 手書きの entity/mapper（生成物ではないが規約上 Infrastructure に閉じる。例: `AuditLogCustomEntity`/`AuditLogCustomMapper`。命名は `XxxCustomEntity`/`XxxCustomMapper`） |
+| `config`                                     | Spring 設定（`SecurityConfig`・`RequiredSecretsValidator`）|
 | `tool`                                       | 開発ツール（`EnumGenerator`）                    |
 
 ## 前提
 
-`jpetstore-database` リポジトリで Docker Compose による MySQL 起動と Flyway マイグレーション（`flywayMigrate`）が完了していること。DB 接続は `jdbc:mysql://localhost:3306/jpetstore_db`（user/pass = `jpetstore`/`jpetstore`、ローカル開発用）。
+`jpetstore-database` リポジトリで Docker Compose による MySQL 起動と Flyway マイグレーション（`flywayMigrate`）が完了していること。DB 接続は `jdbc:mysql://localhost:3306/jpetstore_db`。
+
+## 秘密管理（環境変数・AC5/AC-neg1）
+
+DB 資格情報・JWT 署名鍵はソースにデフォルト値を持たせていない。**未設定だと起動失敗（fail-fast）**。
+
+| 環境変数 | 用途 | 備考 |
+| --- | --- | --- |
+| `DB_USERNAME` / `DB_PASSWORD` | DB 接続資格情報 | ローカル開発は `jpetstore-database` の docker-compose 既定値（`jpetstore`/`jpetstore`） |
+| `JWT_SECRET` | JWT 署名鍵（HS256） | 最小 32byte。起動時に鍵長を検証する（`JwtProperties`） |
+
+1. `.env.example` を `.env` にコピーして値を設定する（`.env` は `.gitignore` 対象）。
+2. 起動前にシェルの環境変数として読み込む。
+
+   ```bash
+   # bash
+   set -a; source .env; set +a
+   ./gradlew bootRun
+   ```
+
+   ```powershell
+   # PowerShell（1行ずつ読み込む簡易例）
+   Get-Content .env | ForEach-Object { if ($_ -match '^\s*([^#=]+)=(.*)$') { [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2]) } }
+   ./gradlew bootRun
+   ```
+
+⚠️ **既知の注意点**: `spring.datasource.username`/`password` のような `@ConfigurationProperties`（Binder）経由でバインドされる値は、`${DB_USERNAME}` が未解決でも例外を投げず**リテラル文字列のまま素通り**する（実際に DB へ接続を試みて初めて失敗が顕在化する）。これは `@Value` による解決（未解決なら即例外）と挙動が異なる。本プロジェクトでは `config.RequiredSecretsValidator`（`@Value` で強制解決するだけの Bean）を置き、DB 資格情報も JWT 鍵と同様に**起動時点で**確実に fail-fast するようにしている。
 
 ## 起動
 
@@ -43,6 +76,23 @@
 curl http://localhost:8080/api/ping   # => {"status":"ok"}
 # Swagger UI: http://localhost:8080/swagger-ui.html
 ```
+
+## トラブルシューティング
+
+### IDE が依存の版更新後も古いシグネチャで警告を出す（例: jjwt 0.11 系の API で lint エラー）
+
+`build.gradle` の依存バージョンを変更した直後、IDE（VSCode の Java 言語サーバ等）が**ビルドキャッシュ/クラスパスを
+更新できず古い版のシグネチャで補完・lint してしまう**ことがある。例えば jjwt を 0.11.5→0.12.6 に更新した後、
+`Jwts.parser()`（引数無し）が deprecated 扱いになったり、0.12 系で追加された `verifyWith`/`subject` 等のメソッドが
+未定義として警告される場合、**実際のビルド（`./gradlew compileJava`）は正常にコンパイルできている**ことが多く
+（依存木は `./gradlew dependencies` で実際に解決されたバージョンを確認できる）、IDE 側のキャッシュ不整合が原因。
+
+- **VSCode（Java Extension Pack）**: コマンドパレットから `Java: Clean Java Language Server Workspace` を実行し、
+  ワークスペースを再読み込みする。または Gradle 拡張の「Refresh」でプロジェクトを再インポートする。
+- 上記で直らない場合は `.vscode/` や言語サーバのキャッシュ（`.gradle`/IDE 固有の一時ディレクトリ）を削除して
+  再読み込みする。
+- **切り分け方**: `./gradlew compileJava` が green なら実装は正しい。IDE のみの表示問題と判断してよい
+  （逆に `compileJava` が red なら実装側の問題）。
 
 ## コード生成
 
@@ -78,6 +128,84 @@ curl http://localhost:8080/api/ping   # => {"status":"ok"}
    ※ MyBatis Generator 生成エンティティ（POJO）を param とする利用を前提（Map param は setter 判定が緩く意図しない put が起こり得るため）。
 
 これにより `OrderService#placeOrder` → `CommonWriteService.insert()` と潜っても、記録は最外の `OrderService#placeOrder`（機能の入口）になる。
+
+## 認可・JWT認証・CSRF（AC2/AC3・SBD-1/3/4/15）
+
+- **認可はサービス/ドメイン層・認証プリンシパル基準**。`domain.security.AuthenticatedUser`（userId/username/roles）を
+  Spring Security の `Authentication#getPrincipal()` に直接格納し、`CurrentUserProvider`（実装:
+  `SecurityContextCurrentUserProvider`）経由で取得する。リクエストパラメータは認可に使わない。
+- `@EnableMethodSecurity` を有効化済み（`SecurityConfig`）。`@PreAuthorize` 等が利用可能。
+- 認証は **JWT を httpOnly Cookie に載せる方式**（stateless セッション）。`JwtService`（jjwt 0.12・access/refresh とも
+  自己完結トークン）・`AuthCookieSupport`（Secure/HttpOnly/SameSite/Path/Max-Age を secure-by-default で付与）・
+  `JwtAuthenticationFilter`（Cookie→SecurityContext）で構成する。
+- **refresh**: `POST /api/auth/refresh`（credential 不要・refresh Cookie のみで access を再発行）。credential
+  を交換する初回ログイン API（`UserDetailsService` の DB 結線含む）は #21 の範囲。refresh token はローテーションしない
+  （失効管理は短命 access ＋期限切れ待ちに割り切り。revocation store は後続）。
+- **CSRF**（Cookie 認証のため必須）: `CookieCsrfTokenRepository.withHttpOnlyFalse()` で `XSRF-TOKEN` Cookie を発行し、
+  `CsrfTokenRequestAttributeHandler`（**Xor ではない**。cookie-to-header の raw 値をそのまま検証するため。公式 SPA
+  ガイド準拠）で検証する。`CsrfCookieFilter` が毎リクエストでトークン解決を強制する（Spring Security の遅延解決
+  のままだと `XSRF-TOKEN` Cookie が発行されないため）。GET は Spring Security の既定どおり CSRF 対象外。
+  SameSite は `jwt.cookie.same-site`（既定 `Strict`）。SPA が same-site で配信できない場合は `Lax` に変更する。
+- `JwtAuthenticationFilter` は `@Component` だが、Boot の自動フィルタ登録による二重実行を防ぐため
+  `SecurityConfig` で `FilterRegistrationBean#setEnabled(false)` にしている（既知の Spring Boot 作法）。
+
+## 例外正規化・監査ログ（AC4/AC7・SBD-10/SBD-14）
+
+- `GlobalExceptionHandler`（`@RestControllerAdvice`）が 400/401/403/404/409/500 を `ErrorResponse`
+  （code/message/path/timestamp）に正規化する。スタックトレース・内部パス・依存版数は返さない
+  （`spring.web.error.*`〔Spring Boot 4 で `server.error.*` から移動〕も whitelabel フォールバック用に抑止済み）。
+- **認可失敗の記録は二重経路**: URL パターン単位の拒否（`authorizeHttpRequests`）は Security フィルタチェーンの
+  `AuditingAccessDeniedHandler`/`AuditingAuthenticationEntryPoint` が捕捉するが、`@PreAuthorize` 由来の拒否は
+  DispatcherServlet 内で `GlobalExceptionHandler` が先に捕捉し フィルタチェーン側へは伝播しない（実機検証で判明）。
+  そのため両方に `AuditLogRecorder.recordAuthzFailure` を結線している。
+- `AuditLogRecorder`（`infrastructure.audit`。ファサード）は `t_audit_log`（`jpetstore-database` V00_000_006）に
+  認可失敗（`AUTHZ_FAILURE`/`DENIED`）・状態変更（`STATE_CHANGE`。呼び出しは後続ドメイン Story）を記録する。
+  `create_program`/`update_program` は既存の WHO Interceptor が自動補完する（認可失敗時は ProgramContext が
+  空のため `"SYSTEM"` になる。許容仕様）。
+  永続化の実体（`AuditLogCustomEntity`/`AuditLogCustomMapper`）はカスタムマッパー規約に従い
+  `infrastructure.mybatis.custom.{entity,mapper}` に置く（手書きである理由は同クラスの Javadoc 参照。
+  要点: `t_audit_log` は追記専用のため MyBatis Generator で update/delete を生成させたくない）。
+
+## 並行制御（AC8・arch §4）
+
+- **編集系（version 楽観ロック）**: `UPDATE t SET ..., version = version + 1 WHERE pk=:id AND version=:readVersion`。
+  affected rows が 0 なら競合 → `domain.concurrency.AffectedRows.requireUpdated(rows)` が
+  `OptimisticLockConflictException` を投げ、`GlobalExceptionHandler` が **HTTP 409** に統一マッピングする。
+- **在庫等のガード付きアトミック減算**: `UPDATE ... WHERE qty >= :n`。affected rows が 0 は「在庫不足」等、409 とは
+  異なる意味になるため `AffectedRows.requireUpdated(rows, () -> new XxxException(...))` で任意の例外に差し替える
+  （実際の在庫サービスは #8 の範囲）。
+- **`@Transactional` 方針**（後続ドメイン Story が従うルール）:
+  - 状態変更を行うユースケース（例: 注文確定・account 編集）は Application Service のメソッドに
+    `@Transactional` を付与し、**all-or-nothing** にする（例: 注文ヘッダ＋明細＋在庫減算を1トランザクションで）。
+  - 参照系メソッドは `@Transactional(readOnly = true)`。
+  - 複数行を更新する場合（例: カート内の複数商品の在庫減算）は **固定順**（例: `item_id` 昇順）で更新し、
+    同時実行どうしのデッドロックを回避する。
+  - 分離レベルは MySQL 既定（REPEATABLE READ）でよい。正しさはガード付き UPDATE の行ロック／`version` 楽観ロック
+    が担保するため、分離レベルに依存させない。
+
+## 統合テスト（Testcontainers・AC全般）
+
+- `support.IntegrationTestBase`（Spock）が Docker 上に MySQL 8.4 を1つ起動し（Singleton container）、Spring Boot
+  の Flyway 自動設定でスキーマを適用したうえでアプリケーションコンテキスト全体を起動する。
+- 適用するスキーマ SQL は `jpetstore-database` の `flyway/sql` を **`src/test/resources/flyway/sql` にコピー**した
+  もの（filesystem 参照ではなく backend 単体で clone してテストできるようにするため）。**`jpetstore-database` の
+  スキーマ変更時は同期が必要**（同期コマンド・理由は `src/test/resources/flyway/sql/README.md` 参照）。
+
+  ```bash
+  ./gradlew syncTestSchema
+  ```
+
+- UT/IT は `@Tag("integration")` で分離する。
+
+  ```bash
+  ./gradlew test            # UT（integration タグ除外）
+  ./gradlew integrationTest # IT（Docker 必要）
+  ```
+
+- 保護テストエンドポイント `GET /api/secured/ping`（`@PreAuthorize("hasRole('ADMIN')")`）は AC2/AC3/AC4/AC8 の
+  secure-by-default 基盤を実証するための唯一のテスト用エンドポイント。`simulateError` パラメータ
+  （`notFound`/`conflict`/`illegalArgument`/`unexpected`）で例外正規化・409 マッピングも同じエンドポイントで検証する
+  （`SecurityEndToEndSpec`）。
 
 ## 正典（横断規約）
 

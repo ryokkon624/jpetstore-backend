@@ -1,0 +1,93 @@
+package com.example.jpetstore.backend.presentation.rest.exception;
+
+import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException;
+import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
+import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/**
+ * 正規化エラーハンドリング基盤（AC4・SBD-10）。
+ *
+ * <p>例外はスタックトレース・内部パス（実装クラス/ファイルパス）・依存ライブラリの版数を露出しない {@link ErrorResponse} にマッピングする。詳細は内部ログにのみ残す。
+ *
+ * <p>Spring Security の認可失敗（{@link AccessDeniedException}）・未認証（{@link AuthenticationException}）は、URL
+ * パターン単位の認可（{@code authorizeHttpRequests}）による拒否なら フィルタチェーン側（{@code ExceptionTranslationFilter} →
+ * {@code AccessDeniedHandler}/{@code
+ * AuthenticationEntryPoint}）が先に捕捉するが、メソッドセキュリティ（{@code @PreAuthorize}）由来の場合は DispatcherServlet
+ * のディスパッチ内で発生し、Spring MVC の例外解決（＝ここ）が先に捕捉してしまい フィルタチェーン側へは伝播しない（実機検証で判明）。そのためどちらの経路でも監査ログ（AC7）が
+ * 記録されるよう、ここでも {@link AuditLogRecorder#recordAuthzFailure} を呼ぶ。
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+  private final AuditLogRecorder auditLogRecorder;
+
+  public GlobalExceptionHandler(AuditLogRecorder auditLogRecorder) {
+    this.auditLogRecorder = auditLogRecorder;
+  }
+
+  @ExceptionHandler(ResourceNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleNotFound(
+      ResourceNotFoundException e, HttpServletRequest request) {
+    return build(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage(), request);
+  }
+
+  @ExceptionHandler(OptimisticLockConflictException.class)
+  public ResponseEntity<ErrorResponse> handleConflict(
+      OptimisticLockConflictException e, HttpServletRequest request) {
+    return build(HttpStatus.CONFLICT, "CONFLICT", e.getMessage(), request);
+  }
+
+  @ExceptionHandler(AccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleAccessDenied(
+      AccessDeniedException e, HttpServletRequest request) {
+    // AC4/SBD-10: 例外メッセージに内部詳細が入っていても外部には固定文言のみ返す。
+    log.warn("Access denied: {}", e.getMessage());
+    auditLogRecorder.recordAuthzFailure(request.getRequestURI(), e.getMessage(), request);
+    return build(HttpStatus.FORBIDDEN, "FORBIDDEN", "Access is denied", request);
+  }
+
+  @ExceptionHandler(AuthenticationException.class)
+  public ResponseEntity<ErrorResponse> handleAuthentication(
+      AuthenticationException e, HttpServletRequest request) {
+    auditLogRecorder.recordAuthzFailure(request.getRequestURI(), e.getMessage(), request);
+    return build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required", request);
+  }
+
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  public ResponseEntity<ErrorResponse> handleValidation(
+      MethodArgumentNotValidException e, HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Validation failed", request);
+  }
+
+  @ExceptionHandler(IllegalArgumentException.class)
+  public ResponseEntity<ErrorResponse> handleIllegalArgument(
+      IllegalArgumentException e, HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", e.getMessage(), request);
+  }
+
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<ErrorResponse> handleUnexpected(Exception e, HttpServletRequest request) {
+    // AC4/SBD-10: 想定外の例外はスタックトレース/クラス名/メッセージを外部に出さない。内部ログにのみ残す。
+    log.error("Unexpected error handling request {}", request.getRequestURI(), e);
+    return build(
+        HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Unexpected error occurred", request);
+  }
+
+  private ResponseEntity<ErrorResponse> build(
+      HttpStatus status, String code, String message, HttpServletRequest request) {
+    return ResponseEntity.status(status)
+        .body(ErrorResponse.of(code, message, request.getRequestURI()));
+  }
+}

@@ -100,6 +100,7 @@
                 t.table_name;
          -->
         <!-- テーブル未定義のため <table> 要素はまだ入れない。スキーマ確定後、上記SQLの結果をここに貼り付ける。 -->
+        <table tableName="m_code" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="true" selectByExampleQueryId="false"></table>
 
     </context>
 </generatorConfiguration>
