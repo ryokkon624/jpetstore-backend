@@ -1,4 +1,14 @@
 {
+  "groups": [
+    {
+      "name": "jwt",
+      "description": "JWT 認証（httpOnly Cookie）の設定。credential を @Value で直接バインドするため対応する @ConfigurationProperties クラスが無く、IDE 補完/検証用にこのファイルで手書き宣言している。"
+    },
+    {
+      "name": "jwt.cookie",
+      "description": "JWT を格納する Cookie（ACCESS_TOKEN/REFRESH_TOKEN）の属性設定。"
+    }
+  ],
   "properties": [
     {
       "name": "jwt.secret",

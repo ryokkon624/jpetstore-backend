@@ -77,6 +77,23 @@ curl http://localhost:8080/api/ping   # => {"status":"ok"}
 # Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 
+## トラブルシューティング
+
+### IDE が依存の版更新後も古いシグネチャで警告を出す（例: jjwt 0.11 系の API で lint エラー）
+
+`build.gradle` の依存バージョンを変更した直後、IDE（VSCode の Java 言語サーバ等）が**ビルドキャッシュ/クラスパスを
+更新できず古い版のシグネチャで補完・lint してしまう**ことがある。例えば jjwt を 0.11.5→0.12.6 に更新した後、
+`Jwts.parser()`（引数無し）が deprecated 扱いになったり、0.12 系で追加された `verifyWith`/`subject` 等のメソッドが
+未定義として警告される場合、**実際のビルド（`./gradlew compileJava`）は正常にコンパイルできている**ことが多く
+（依存木は `./gradlew dependencies` で実際に解決されたバージョンを確認できる）、IDE 側のキャッシュ不整合が原因。
+
+- **VSCode（Java Extension Pack）**: コマンドパレットから `Java: Clean Java Language Server Workspace` を実行し、
+  ワークスペースを再読み込みする。または Gradle 拡張の「Refresh」でプロジェクトを再インポートする。
+- 上記で直らない場合は `.vscode/` や言語サーバのキャッシュ（`.gradle`/IDE 固有の一時ディレクトリ）を削除して
+  再読み込みする。
+- **切り分け方**: `./gradlew compileJava` が green なら実装は正しい。IDE のみの表示問題と判断してよい
+  （逆に `compileJava` が red なら実装側の問題）。
+
 ## コード生成
 
 ### entity / mapper（MyBatis Generator）
