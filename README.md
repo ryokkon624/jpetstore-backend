@@ -31,9 +31,10 @@
 | `domain.security`                            | 認証プリンシパル（`AuthenticatedUser`）と取得口（`CurrentUserProvider`）。AC2 |
 | `domain.exception`                           | 基底例外型（`ResourceNotFoundException`・`OptimisticLockConflictException`）。AC4/AC8 |
 | `domain.concurrency`                         | 並行制御ヘルパ（`AffectedRows`）。AC8            |
-| `infrastructure.audit`                       | WHO カラム自動付与（AOP + MyBatis Interceptor）＋監査ログ記録（`AuditLogRecorder`）。AC7 |
+| `infrastructure.audit`                       | WHO カラム自動付与（AOP + MyBatis Interceptor）＋監査ログ記録ファサード（`AuditLogRecorder`）。AC7 |
 | `infrastructure.security`                    | JWT 発行/検証・Cookie 読み書き・認証フィルタ・CSRF 補助フィルタ。AC3 |
 | `infrastructure.mybatis.generated.{entity,mapper}` | MyBatis Generator の**生成物**             |
+| `infrastructure.mybatis.custom.{entity,mapper}` | 手書きの entity/mapper（生成物ではないが規約上 Infrastructure に閉じる。例: `AuditLogCustomEntity`/`AuditLogCustomMapper`。命名は `XxxCustomEntity`/`XxxCustomMapper`） |
 | `config`                                     | Spring 設定（`SecurityConfig`・`RequiredSecretsValidator`）|
 | `tool`                                       | 開発ツール（`EnumGenerator`）                    |
 
@@ -135,15 +136,18 @@ curl http://localhost:8080/api/ping   # => {"status":"ok"}
 
 - `GlobalExceptionHandler`（`@RestControllerAdvice`）が 400/401/403/404/409/500 を `ErrorResponse`
   （code/message/path/timestamp）に正規化する。スタックトレース・内部パス・依存版数は返さない
-  （`server.error.*` も whitelabel フォールバック用に抑止済み）。
+  （`spring.web.error.*`〔Spring Boot 4 で `server.error.*` から移動〕も whitelabel フォールバック用に抑止済み）。
 - **認可失敗の記録は二重経路**: URL パターン単位の拒否（`authorizeHttpRequests`）は Security フィルタチェーンの
   `AuditingAccessDeniedHandler`/`AuditingAuthenticationEntryPoint` が捕捉するが、`@PreAuthorize` 由来の拒否は
   DispatcherServlet 内で `GlobalExceptionHandler` が先に捕捉し フィルタチェーン側へは伝播しない（実機検証で判明）。
   そのため両方に `AuditLogRecorder.recordAuthzFailure` を結線している。
-- `AuditLogRecorder`（`infrastructure.audit`）は `t_audit_log`（`jpetstore-database` V00_000_006）に
+- `AuditLogRecorder`（`infrastructure.audit`。ファサード）は `t_audit_log`（`jpetstore-database` V00_000_006）に
   認可失敗（`AUTHZ_FAILURE`/`DENIED`）・状態変更（`STATE_CHANGE`。呼び出しは後続ドメイン Story）を記録する。
   `create_program`/`update_program` は既存の WHO Interceptor が自動補完する（認可失敗時は ProgramContext が
   空のため `"SYSTEM"` になる。許容仕様）。
+  永続化の実体（`AuditLogCustomEntity`/`AuditLogCustomMapper`）はカスタムマッパー規約に従い
+  `infrastructure.mybatis.custom.{entity,mapper}` に置く（手書きである理由は同クラスの Javadoc 参照。
+  要点: `t_audit_log` は追記専用のため MyBatis Generator で update/delete を生成させたくない）。
 
 ## 並行制御（AC8・arch §4）
 

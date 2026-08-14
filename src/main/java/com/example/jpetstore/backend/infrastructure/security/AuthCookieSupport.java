@@ -54,9 +54,10 @@ public class AuthCookieSupport {
     if (cookies == null) {
       return Optional.empty();
     }
+    // メソッド参照(Cookie::getValue)はnull型安全解析で警告が出るためラムダ化（挙動は不変）。
     return Arrays.stream(cookies)
         .filter(c -> c.getName().equals(name))
-        .map(Cookie::getValue)
+        .map(c -> c.getValue())
         .findFirst();
   }
 

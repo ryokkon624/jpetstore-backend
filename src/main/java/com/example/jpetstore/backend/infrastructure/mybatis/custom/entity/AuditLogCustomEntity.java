@@ -1,15 +1,21 @@
-package com.example.jpetstore.backend.infrastructure.audit;
+package com.example.jpetstore.backend.infrastructure.mybatis.custom.entity;
 
 import java.time.LocalDateTime;
 
 /**
- * {@code t_audit_log} の Infrastructure エンティティ（手書き。AC7）。
+ * {@code t_audit_log} のカスタムエンティティ（手書き。AC7）。
  *
  * <p>MyBatis Generator の生成物ではないが、既存の生成エンティティと同じ規約（Infrastructure 層に閉じる・ WHO カラムを持つ）に揃えている。{@code
- * createProgram}/{@code updateProgram} は {@link AuditProgramInterceptor} が未設定時に自動補完する（本テーブルへの書き込みは
+ * createProgram}/{@code updateProgram} は {@code AuditProgramInterceptor} が未設定時に自動補完する（本テーブルへの書き込みは
  * {@code ..application.service..} を経由しないことが多いため、通常は "SYSTEM" が補完される想定）。
+ *
+ * <p><b>なぜ手書き（MyBatis Generator 生成対象外）か（Sprint Review 指摘⑥への回答）</b>: {@code t_audit_log}
+ * は追記専用の監査証跡であり、更新・削除は仕様上許可しない（architecture-conventions §4.3「純追記表」）。MyBatis Generator
+ * を適用すると意図的に持たせたくない update/delete 系メソッドまで生成されてしまい、「追記専用」という 制約をコード上で表現できなくなる。また Generator 実行には稼働中の
+ * DB 接続が必要で、本テーブルは書き込み専用の 単機能（INSERT 1本）のため、生成コストに見合わない。以上の理由から、他のカスタムエンティティ（JOIN結果受け取り用） と同じ
+ * {@code infrastructure.mybatis.custom} 配下に配置しつつ、生成せず手書きで維持する。
  */
-public class AuditLogEntity {
+public class AuditLogCustomEntity {
 
   private Long auditId;
   private String eventType;

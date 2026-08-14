@@ -44,6 +44,18 @@ class SecurityEndToEndSpec extends IntegrationTestBase {
         new Cookie(AuthCookieSupport.ACCESS_TOKEN_COOKIE, jwtService.generateAccessToken(user))
     }
 
+    def "swagger-ui.htmlは未認証でも302でswagger-ui/index.htmlへリダイレクトされる(Sprint Review指摘対応)"() {
+        expect:
+        mockMvc.perform(get("/swagger-ui.html"))
+                .andExpect(status().is3xxRedirection())
+    }
+
+    def "v3/api-docsは未認証でも200を返す"() {
+        expect:
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+    }
+
     def "未認証(Cookie無し)でsecured/pingを叩くと401かつ監査ログに記録される"() {
         when:
         def result = mockMvc.perform(get("/api/secured/ping"))

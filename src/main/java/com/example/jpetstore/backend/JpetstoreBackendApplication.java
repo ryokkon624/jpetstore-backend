@@ -7,8 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 @MapperScan({
   "com.example.jpetstore.backend.infrastructure.mybatis.generated.mapper",
-  // AC7: t_audit_log 用の手書き Mapper（MyBatis Generator 生成対象外）
-  "com.example.jpetstore.backend.infrastructure.audit"
+  "com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper"
 })
 public class JpetstoreBackendApplication {
 

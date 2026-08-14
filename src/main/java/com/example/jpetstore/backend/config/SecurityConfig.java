@@ -10,7 +10,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -47,6 +46,10 @@ public class SecurityConfig {
                 auth.requestMatchers(
                         "/api/ping",
                         "/actuator/health",
+                        // springdoc のエントリポイント "/swagger-ui.html" は "/swagger-ui/index.html" への
+                        // リダイレクトであり "/swagger-ui/**" には一致しない。両方を許可する必要がある
+                        // （Sprint Review 指摘で発覚）。
+                        "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         // AC3: refresh は credential 不要（refresh Cookie のみで判定）。
@@ -65,8 +68,9 @@ public class SecurityConfig {
             eh ->
                 eh.accessDeniedHandler(accessDeniedHandler)
                     .authenticationEntryPoint(authenticationEntryPoint))
-        .formLogin(AbstractHttpConfigurer::disable)
-        .httpBasic(AbstractHttpConfigurer::disable);
+        // メソッド参照(AbstractHttpConfigurer::disable)はnull型安全解析で警告が出るためラムダ化（挙動は不変）。
+        .formLogin(form -> form.disable())
+        .httpBasic(basic -> basic.disable());
     return http.build();
   }
 

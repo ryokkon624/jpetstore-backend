@@ -1,14 +1,17 @@
 server:
   port: 8080
-  error:
-    include-stacktrace: never
-    include-message: never
-    include-binding-errors: never
-    include-exception: false
 
 spring:
   application:
     name: jpetstore-backend
+  # AC4 (SBD-10): Spring Boot 4 で server.error.* は spring.web.error.* へ移動した
+  # （org.springframework.boot.autoconfigure.web.WebProperties のネストプロパティ。Sprint Review 指摘対応）。
+  web:
+    error:
+      include-stacktrace: never
+      include-message: never
+      include-binding-errors: never
+      include-exception: false
   datasource:
     url: jdbc:mysql://localhost:3306/jpetstore_db?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Tokyo
     # AC5/AC-neg1 (SBD-11): 秘密をソースに置かない。デフォルト値を持たせず、未設定なら起動失敗（fail-fast）。

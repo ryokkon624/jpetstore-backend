@@ -2,6 +2,8 @@ package com.example.jpetstore.backend.infrastructure.audit;
 
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AuditLogCustomEntity;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AuditLogCustomMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
@@ -12,6 +14,10 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>本 Story のスコープは記録機構そのものと、認可失敗（401/403）の記録結線まで。状態変更 （注文作成・account 編集等）の実際の呼び出し箇所は後続ドメイン Story が
  * {@link #recordStateChange} を呼び出す想定。
+ *
+ * <p>Mapper/Entity は {@code infrastructure.mybatis.custom} 配下の {@link AuditLogCustomMapper}/{@link
+ * AuditLogCustomEntity}（カスタムマッパー規約準拠）。本クラス自身は監査という横断関心のファサードとして {@code
+ * infrastructure.audit}（WHO自動付与と同じパッケージ）に留める。
  */
 @Component
 public class AuditLogRecorder {
@@ -20,12 +26,14 @@ public class AuditLogRecorder {
   private static final String EVENT_STATE_CHANGE = "STATE_CHANGE";
   private static final String RESULT_DENIED = "DENIED";
 
-  private final AuditLogMapper mapper;
+  private final AuditLogCustomMapper mapper;
   private final CurrentUserProvider currentUserProvider;
   private final ObjectMapper objectMapper;
 
   public AuditLogRecorder(
-      AuditLogMapper mapper, CurrentUserProvider currentUserProvider, ObjectMapper objectMapper) {
+      AuditLogCustomMapper mapper,
+      CurrentUserProvider currentUserProvider,
+      ObjectMapper objectMapper) {
     this.mapper = mapper;
     this.currentUserProvider = currentUserProvider;
     this.objectMapper = objectMapper;
@@ -65,7 +73,7 @@ public class AuditLogRecorder {
       String result,
       Object detail,
       String clientIp) {
-    AuditLogEntity entity = new AuditLogEntity();
+    AuditLogCustomEntity entity = new AuditLogCustomEntity();
     entity.setEventType(eventType);
     entity.setActorUserId(actor == null ? null : actor.userId());
     entity.setActorUsername(actor == null ? null : actor.username());
