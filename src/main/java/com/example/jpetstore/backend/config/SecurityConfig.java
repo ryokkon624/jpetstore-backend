@@ -7,10 +7,15 @@ import com.example.jpetstore.backend.presentation.rest.security.AuditingAuthenti
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
@@ -25,8 +30,9 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
  * トークンをそのままヘッダで送り返す想定 （{@link CsrfTokenRequestAttributeHandler}。既定の {@code
  * XorCsrfTokenRequestAttributeHandler} はヘッダ値のマスクを要求するため cookie-to-header パターンと相性が悪く不採用。公式ガイド準拠）。
  *
- * <p>credential を交換するログイン API・{@code UserDetailsService} の DB 結線は #21 の範囲。本 Story
- * は「認可を強制する仕組み」「認証プリンシパルの取得口」「JWT 発行/検証・Cookie 読み書き・ refresh」を土台として用意する。
+ * <p>credential を交換するログイン API（{@code POST /api/auth/login}）・{@code UserDetailsService} の DB
+ * 結線・{@code AuthenticationManager}（{@code DaoAuthenticationProvider}）の結線は #18 で追加した（#23 時点では
+ * refresh のみの土台だったため、当時のコメントは #21 と誤記していたが実際は #18）。
  */
 @Configuration
 @EnableWebSecurity
@@ -53,7 +59,11 @@ public class SecurityConfig {
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         // AC3: refresh は credential 不要（refresh Cookie のみで判定）。
-                        "/api/auth/refresh")
+                        "/api/auth/refresh",
+                        // #18 AC1/AC4: login/logout はそれ自体が認証の入口/出口のため未認証で到達可能にする
+                        // （CSRF は下記 csrf() 設定で別途必須。認証チェック自体は免除するだけ）。
+                        "/api/auth/login",
+                        "/api/auth/logout")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
@@ -72,6 +82,23 @@ public class SecurityConfig {
         .formLogin(form -> form.disable())
         .httpBasic(basic -> basic.disable());
     return http.build();
+  }
+
+  /**
+   * ログイン（#18）で credential（username/password）を照合するための {@link AuthenticationManager}。{@link
+   * DaoAuthenticationProvider} に {@link UserDetailsService}（{@code JdbcUserDetailsService}）と {@link
+   * PasswordEncoder}（#19 の {@code PasswordEncoderConfig}）を結線する。
+   *
+   * <p>未知の username（{@code UsernameNotFoundException}）は {@code DaoAuthenticationProvider} の既定動作
+   * （{@code hideUserNotFoundExceptions=true}）により、誤 password と同一の {@code BadCredentialsException} に
+   * 正規化される（SBD-6・列挙不可）。
+   */
+  @Bean
+  public AuthenticationManager authenticationManager(
+      UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+    DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+    provider.setPasswordEncoder(passwordEncoder);
+    return new ProviderManager(provider);
   }
 
   /**

@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -69,6 +70,17 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleValidation(
       MethodArgumentNotValidException e, HttpServletRequest request) {
     return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Validation failed", request);
+  }
+
+  /**
+   * マッピングされていない HTTP メソッドでのアクセス（AC-neg2: GET での状態変更エンドポイント呼び出し等）を 405 として正規化する。専用ハンドラが無いと下の {@link
+   * #handleUnexpected} が拾い 500 に丸めてしまうため明示的に用意する。
+   */
+  @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
+      HttpRequestMethodNotSupportedException e, HttpServletRequest request) {
+    return build(
+        HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED", "Method not allowed", request);
   }
 
   @ExceptionHandler(IllegalArgumentException.class)
