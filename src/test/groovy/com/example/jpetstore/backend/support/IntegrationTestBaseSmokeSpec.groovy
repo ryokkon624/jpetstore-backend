@@ -20,10 +20,10 @@ class IntegrationTestBaseSmokeSpec extends IntegrationTestBase {
                 Integer, DB_NAME, "m_account") == 1
     }
 
-    def "flyway_schema_historyに全マイグレーション(6件)が成功として記録されている"() {
+    def "flyway_schema_historyに全マイグレーション(7件)が成功として記録されている"() {
         expect:
         jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true",
-                Integer) == 6
+                Integer) == 7
     }
 }

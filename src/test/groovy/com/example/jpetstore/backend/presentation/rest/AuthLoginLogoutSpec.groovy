@@ -48,6 +48,10 @@ class AuthLoginLogoutSpec extends IntegrationTestBase {
 
     void setup() {
         jdbcTemplate.update("DELETE FROM t_audit_log")
+        // #20 AC1(SBD-6): t_login_attempt はusername単位で失敗カウンタを永続化するため、テストごとに
+        // クリアしないと本Specの複数メソッドが同一USERNAMEへの誤PW試行を積み重ねてしまい、
+        // ロック閾値到達によって後続テストの「正しいpasswordで200」が意図せず401化する(テスト間の状態汚染)。
+        jdbcTemplate.update("DELETE FROM t_login_attempt")
         jdbcTemplate.update("DELETE FROM m_signon WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
         jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", USERNAME)
         insertLoginTestUser()
@@ -204,6 +208,19 @@ class AuthLoginLogoutSpec extends IntegrationTestBase {
         def headers = result.response.getHeaders("Set-Cookie")
         headers.any { it.startsWith("${AuthCookieSupport.ACCESS_TOKEN_COOKIE}=") && it.contains("Max-Age=0") }
         headers.any { it.startsWith("${AuthCookieSupport.REFRESH_TOKEN_COOKIE}=") && it.contains("Max-Age=0") }
+    }
+
+    def "forwardActionパラメータを付与してもリダイレクトされない(#20 AC2/AC-neg2・SBD-9・sink不在の回帰)"() {
+        when:
+        def result = mockMvc.perform(post("/api/auth/login?forwardAction=//evil.com")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody(USERNAME, RAW_PASSWORD)))
+                .andReturn()
+
+        then: "レガシーのforwardAction相当のパラメータを付与しても、Locationヘッダも3xxも返らない(sink不在)"
+        result.response.getHeader("Location") == null
+        !(result.response.status in 300..399)
     }
 
     def "ログイン→保護resourceへのアクセス(role不足で403)→logout後は401になる、の一連が疎通する(AC1)"() {
