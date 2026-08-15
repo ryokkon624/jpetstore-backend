@@ -45,3 +45,10 @@ jwt:
     # SPA が same-site で配信されない場合は Lax に切り替える（README 参照）。
     same-site: Strict
     secure: true
+
+auth:
+  # #20 AC1 (SBD-6): レート制限/ロックアウト。username単位で連続失敗を数え、閾値到達で一定時間ロックする。
+  # env上書き可（例: AUTH_LOCKOUT_MAX_ATTEMPTS / AUTH_LOCKOUT_LOCK_DURATION）。
+  lockout:
+    max-attempts: 5
+    lock-duration: PT15M

@@ -5,19 +5,23 @@ import com.example.jpetstore.backend.infrastructure.security.AuthCookieSupport;
 import com.example.jpetstore.backend.infrastructure.security.AuthenticatedUserDetails;
 import com.example.jpetstore.backend.infrastructure.security.JwtProperties;
 import com.example.jpetstore.backend.infrastructure.security.JwtService;
+import com.example.jpetstore.backend.infrastructure.security.LoginAttemptService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
 
 /**
- * 認証まわりのユースケース（AC1/AC2/AC3・#18）。
+ * 認証まわりのユースケース（AC1/AC2/AC3・#18・#20）。
  *
  * <p>credential（username/password）を交換して初回ログインする処理（access/refresh の初回発行・{@code UserDetailsService} の
  * DB 結線）とログアウトは #18 で追加した（#23 時点では refresh のみの土台だったため、当時の コメントは #21 と誤記していたが実際は #18）。
+ *
+ * <p>#20 AC1(SBD-6): レート制限/ロックアウトの前段ゲート（{@link LoginAttemptService}）をここに結線する。
  */
 @Service
 public class AuthApplicationService {
@@ -26,20 +30,27 @@ public class AuthApplicationService {
   private final JwtService jwtService;
   private final AuthCookieSupport cookieSupport;
   private final JwtProperties jwtProperties;
+  private final LoginAttemptService loginAttemptService;
 
   public AuthApplicationService(
       AuthenticationManager authenticationManager,
       JwtService jwtService,
       AuthCookieSupport cookieSupport,
-      JwtProperties jwtProperties) {
+      JwtProperties jwtProperties,
+      LoginAttemptService loginAttemptService) {
     this.authenticationManager = authenticationManager;
     this.jwtService = jwtService;
     this.cookieSupport = cookieSupport;
     this.jwtProperties = jwtProperties;
+    this.loginAttemptService = loginAttemptService;
   }
 
   /**
    * username/password を照合し、成功すれば access/refresh を新規発行して httpOnly Cookie にセットする（AC1/AC2）。
+   *
+   * <p>#20 AC1(SBD-6): {@link LoginAttemptService#assertNotLocked} を authenticate() の前に呼び、ロック中なら
+   * 既存の誤資格と同一の例外で短絡する（列挙不可）。authenticate() が失敗した場合は {@link LoginAttemptService#recordFailure}
+   * を記録してから同一の例外をそのまま再送出する（呼び出し元の一律401ハンドリングを変えない）。
    *
    * <p>{@link AuthenticationManager#authenticate} が資格情報を照合する（{@code DaoAuthenticationProvider} 経由で
    * {@code JdbcUserDetailsService}＋#19 の {@code PasswordEncoder} を使用）。誤 password・未知 username はいずれも
@@ -52,9 +63,19 @@ public class AuthApplicationService {
    */
   public AuthenticatedUser login(
       String username, String rawPassword, HttpServletResponse response) {
-    Authentication authResult =
-        authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(username, rawPassword));
+    loginAttemptService.assertNotLocked(username);
+
+    Authentication authResult;
+    try {
+      authResult =
+          authenticationManager.authenticate(
+              new UsernamePasswordAuthenticationToken(username, rawPassword));
+    } catch (AuthenticationException e) {
+      loginAttemptService.recordFailure(username);
+      throw e;
+    }
+    loginAttemptService.recordSuccess(username);
+
     AuthenticatedUserDetails principal = (AuthenticatedUserDetails) authResult.getPrincipal();
     AuthenticatedUser user = principal.authenticatedUser();
 
