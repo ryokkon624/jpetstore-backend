@@ -2,12 +2,14 @@ package com.example.jpetstore.backend.presentation.rest;
 
 import com.example.jpetstore.backend.application.service.AuthApplicationService;
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
+import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,9 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
   private final AuthApplicationService authApplicationService;
+  private final CurrentUserProvider currentUserProvider;
 
-  public AuthController(AuthApplicationService authApplicationService) {
+  public AuthController(
+      AuthApplicationService authApplicationService, CurrentUserProvider currentUserProvider) {
     this.authApplicationService = authApplicationService;
+    this.currentUserProvider = currentUserProvider;
   }
 
   /**
@@ -58,6 +63,20 @@ public class AuthController {
   public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
     authApplicationService.refreshAccessToken(request, response);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 現在の認証プリンシパルを返す（#24 論点①）。httpOnly Cookie はリロード後もブラウザが自動送信されるが、 フロントの Pinia
+   * store（username/roles）はリロードで揮発するため、起動時にこのエンドポイントを叩いて identity を再水和する。
+   *
+   * <p>本エンドポイントは {@code SecurityConfig} の {@code anyRequest().authenticated()} 配下（permitAll
+   * に入れていない）ため、未認証リクエストはこのメソッドに到達する前に {@code AuditingAuthenticationEntryPoint} が 401 を返す。GET＝冪等のため
+   * CSRF 不要。自分自身の identity のみを返す（他人を引けない＝列挙防止）。
+   */
+  @GetMapping("/me")
+  public ResponseEntity<LoginResponse> me() {
+    AuthenticatedUser user = currentUserProvider.requireCurrentUser();
+    return ResponseEntity.ok(new LoginResponse(user.username(), user.roles()));
   }
 
   /** ログイン要求の DTO（Controller 層に閉じる）。資格情報は body のみで受理する（AC-neg2・GET/query 不可）。 */
