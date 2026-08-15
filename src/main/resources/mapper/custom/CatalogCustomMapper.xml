@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #1 カタログ階層（category → product → item ＋ inventory）の参照専用SQL。
+  読み取り専用＋階層＋ページング(LIMIT/OFFSET)＋JOIN＋COUNTを伴うためXMLマッパー方式を採用する
+  （backend-conventions §9）。MyBatis Generatorの生成対象外。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CatalogCustomMapper">
+
+    <select id="selectAllCategories" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CategoryCustomEntity">
+        SELECT category_id, name, description
+          FROM m_category
+         ORDER BY category_id
+    </select>
+
+    <select id="selectCategoryById" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CategoryCustomEntity">
+        SELECT category_id, name, description
+          FROM m_category
+         WHERE category_id = #{categoryId}
+    </select>
+
+    <select id="selectProductsByCategoryId" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProductCustomEntity">
+        SELECT product_id, category_id, name, description
+          FROM m_product
+         WHERE category_id = #{categoryId}
+         ORDER BY product_id
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countProductsByCategoryId" resultType="long">
+        SELECT COUNT(*)
+          FROM m_product
+         WHERE category_id = #{categoryId}
+    </select>
+
+    <select id="selectProductById" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProductCustomEntity">
+        SELECT product_id, category_id, name, description
+          FROM m_product
+         WHERE product_id = #{productId}
+    </select>
+
+    <select id="selectItemsByProductId" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemSummaryCustomEntity">
+        SELECT i.item_id AS item_id, i.product_id AS product_id, i.attribute1 AS attribute1,
+               i.list_price AS list_price, COALESCE(inv.quantity, 0) AS quantity
+          FROM m_item i
+          LEFT JOIN t_inventory inv ON inv.item_id = i.item_id
+         WHERE i.product_id = #{productId}
+         ORDER BY i.item_id
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countItemsByProductId" resultType="long">
+        SELECT COUNT(*)
+          FROM m_item
+         WHERE product_id = #{productId}
+    </select>
+
+    <select id="selectItemById" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemDetailCustomEntity">
+        SELECT i.item_id AS item_id, i.product_id AS product_id,
+               p.name AS product_name, p.description AS product_description,
+               i.attribute1 AS attribute1, i.list_price AS list_price,
+               COALESCE(inv.quantity, 0) AS quantity
+          FROM m_item i
+          JOIN m_product p ON p.product_id = i.product_id
+          LEFT JOIN t_inventory inv ON inv.item_id = i.item_id
+         WHERE i.item_id = #{itemId}
+    </select>
+
+</mapper>
