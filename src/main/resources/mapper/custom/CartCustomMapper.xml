@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #4 カート（t_cart / t_cart_item）の永続化SQL。
+  JOIN（item×inventory=在庫、item×product=商品名）・upsert（ON DUPLICATE KEY UPDATE）を伴うため
+  XMLマッパー方式を採用する（backend-conventions §9）。MyBatis Generatorの生成対象外。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCustomMapper">
+
+    <!--
+      ensureCart: 1ユーザ1カート（t_cart.user_id UNIQUE）を前提にした upsert-get-id。
+      既に存在する場合は「ON DUPLICATE KEY UPDATE cart_id = LAST_INSERT_ID(cart_id)」により、
+      LAST_INSERT_ID()が既存行のPKを返す（MySQL標準のupsert-get-idイディオム）。
+      useGeneratedKeys="true" で JDBCのgetGeneratedKeys()（=LAST_INSERT_ID()相当）をcartIdへ反映する。
+      create_program/update_programはAuditProgramInterceptorが未設定なら自動補完する。
+    -->
+    <insert id="ensureCart" useGeneratedKeys="true" keyProperty="cartId"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartHeaderCustomEntity">
+        INSERT INTO t_cart (user_id, create_user_id, create_program, update_user_id, update_program)
+        VALUES (#{userId}, #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram})
+        ON DUPLICATE KEY UPDATE cart_id = LAST_INSERT_ID(cart_id)
+    </insert>
+
+    <select id="selectCartItems" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemCustomEntity">
+        SELECT ci.item_id AS item_id, i.product_id AS product_id, p.name AS product_name,
+               i.attribute1 AS attribute1, i.list_price AS list_price, ci.quantity AS quantity,
+               COALESCE(inv.quantity, 0) AS stock_quantity
+          FROM t_cart_item ci
+          JOIN m_item i ON i.item_id = ci.item_id
+          JOIN m_product p ON p.product_id = i.product_id
+          LEFT JOIN t_inventory inv ON inv.item_id = ci.item_id
+         WHERE ci.cart_id = #{cartId}
+         ORDER BY ci.item_id
+    </select>
+
+    <!--
+      selectItemForCart: 追加/更新の事前チェック用。m_itemを起点にLEFT JOINするため、アイテムが存在しなければ
+      行自体が返らない（＝呼び出し元でnull判定→404・AC4/SBD-10）。t_cart_itemはcart_idスコープでLEFT JOIN
+      するため、当該カートに未追加なら current_quantity は0になる。
+    -->
+    <select id="selectItemForCart" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemForCartCustomEntity">
+        SELECT i.item_id AS item_id,
+               COALESCE(inv.quantity, 0) AS stock_quantity,
+               COALESCE(ci.quantity, 0) AS current_quantity
+          FROM m_item i
+          LEFT JOIN t_inventory inv ON inv.item_id = i.item_id
+          LEFT JOIN t_cart_item ci ON ci.cart_id = #{cartId} AND ci.item_id = i.item_id
+         WHERE i.item_id = #{itemId}
+    </select>
+
+    <!--
+      upsertCartItemQuantity: 呼び出し元が算出済みの最終絶対数量をupsertする単文アトミック更新（D3）。
+      UNIQUE(cart_id, item_id)により、同一アイテムの重複行（幽霊行=ID-17）を構造的に防ぐ。
+    -->
+    <insert id="upsertCartItemQuantity"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemWriteCustomEntity">
+        INSERT INTO t_cart_item (cart_id, item_id, quantity, create_user_id, create_program, update_user_id, update_program)
+        VALUES (#{cartId}, #{itemId}, #{quantity}, #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram})
+        ON DUPLICATE KEY UPDATE
+            quantity = VALUES(quantity),
+            update_user_id = VALUES(update_user_id),
+            update_program = VALUES(update_program)
+    </insert>
+
+    <delete id="deleteCartItem">
+        DELETE FROM t_cart_item WHERE cart_id = #{cartId} AND item_id = #{itemId}
+    </delete>
+
+</mapper>
