@@ -3,10 +3,16 @@ package com.example.jpetstore.backend.presentation.rest.exception
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder
+import com.example.jpetstore.backend.presentation.rest.CatalogController
+import org.springframework.core.MethodParameter
+import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.authentication.BadCredentialsException
+import org.springframework.web.bind.MissingServletRequestParameterException
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.servlet.resource.NoResourceFoundException
 import spock.lang.Specification
 
 /**
@@ -86,5 +92,42 @@ class GlobalExceptionHandlerSpec extends Specification {
         response.body.code == "INTERNAL_ERROR"
         !response.body.message.contains("Internal.java")
         !response.body.message.contains("boom")
+    }
+
+    def "#3 AC-neg1: MethodArgumentTypeMismatchExceptionは400に正規化される(非数値page/size等の型不一致)"() {
+        given:
+        def method = CatalogController.getMethod("listProductsByCategory", String, Integer, Integer)
+        def param = new MethodParameter(method, 1)
+        def exception = new MethodArgumentTypeMismatchException("abc", Integer, "page", param, new NumberFormatException("abc"))
+
+        when:
+        def response = handler.handleTypeMismatch(exception, request)
+
+        then:
+        response.statusCode == HttpStatus.BAD_REQUEST
+        response.body.code == "BAD_REQUEST"
+    }
+
+    def "#3 AC-neg1: MissingServletRequestParameterExceptionは400に正規化される(必須パラメータ欠落)"() {
+        when:
+        def response = handler.handleMissingParameter(
+                new MissingServletRequestParameterException("keyword", "String"), request)
+
+        then:
+        response.statusCode == HttpStatus.BAD_REQUEST
+        response.body.code == "BAD_REQUEST"
+    }
+
+    def "#3 AC-neg1: NoResourceFoundExceptionは404に正規化される(未知パスへのアクセス)"() {
+        given:
+        def path = "/api/categories/DOGS/unknown"
+        def exception = new NoResourceFoundException(HttpMethod.GET, path, path)
+
+        when:
+        def response = handler.handleNoResourceFound(exception, request)
+
+        then:
+        response.statusCode == HttpStatus.NOT_FOUND
+        response.body.code == "NOT_FOUND"
     }
 }

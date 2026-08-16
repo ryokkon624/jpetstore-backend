@@ -177,4 +177,40 @@ class CatalogControllerSpec extends IntegrationTestBase {
         mockMvc.perform(post("/api/categories"))
                 .andExpect(status().isForbidden())
     }
+
+    def "#3 AC-neg1: 非数値pageは400に正規化される(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/categories/DOGS/products?page=abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath('$.code').value("BAD_REQUEST"))
+    }
+
+    def "#3 AC-neg1: 非数値sizeは400に正規化される(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/categories/DOGS/products?size=abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath('$.code').value("BAD_REQUEST"))
+    }
+
+    def "#3 AC-neg1: 桁あふれのpage(Integer範囲超)は400に正規化される(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/categories/DOGS/products?page=99999999999999999999"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath('$.code').value("BAD_REQUEST"))
+    }
+
+    def "#3 AC-neg1: stale頁送り相当(範囲外の有効なpage番号)はクランプされ空200を返す(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/categories/DOGS/products?page=9999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+                .andExpect(jsonPath('$.totalElements').value(6))
+    }
+
+    def "#3 AC-neg1: 未知のサブパスは404に正規化される(500でない・NoResourceFoundException)"() {
+        expect:
+        mockMvc.perform(get("/api/categories/DOGS/unknown-subpath"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath('$.code').value("NOT_FOUND"))
+    }
 }
