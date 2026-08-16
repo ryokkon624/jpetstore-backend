@@ -7,6 +7,7 @@ import com.example.jpetstore.backend.presentation.rest.security.AuditingAuthenti
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -64,6 +65,16 @@ public class SecurityConfig {
                         // （CSRF は下記 csrf() 設定で別途必須。認証チェック自体は免除するだけ）。
                         "/api/auth/login",
                         "/api/auth/logout")
+                    .permitAll()
+                    // #1 AC4: カタログは読み取り専用（GETのみ）・全公開（未認証到達可）。GETスコープに限定する
+                    // ことで、同一パスへの非GET（POST等）は authenticated() のまま素通りせず、Spring MVC の
+                    // メソッド不一致判定（405・GlobalExceptionHandler）に落ちる（AC4・状態変更なしを維持）。
+                    .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/categories",
+                        "/api/categories/**",
+                        "/api/products/**",
+                        "/api/items/**")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

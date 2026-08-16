@@ -21,6 +21,10 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 mybatis:
+  # #1: 本プロジェクト初のXMLマッパー利用（カタログのカスタムXMLマッパー）。mapper-locations 未設定だと
+  # mybatis-spring-boot-starter は mapperLocations=null のまま解決され XML が一切ロードされない
+  # （generatorConfig.xml の生成先 resources/mapper/generated/ とも合わせ classpath:mapper/**/*.xml を明示する）。
+  mapper-locations: classpath:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
 
