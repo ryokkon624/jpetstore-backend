@@ -5,6 +5,7 @@ import com.example.jpetstore.backend.domain.cart.Cart;
 import com.example.jpetstore.backend.domain.cart.CartItem;
 import com.example.jpetstore.backend.domain.cart.CartLine;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
 import java.util.List;
@@ -77,8 +78,11 @@ public class CartController {
     return CartResponse.from(cartApplicationService.merge(domainLines));
   }
 
-  /** カート追加要求DTO（Controller層に閉じる）。{@code quantity} は任意（既定1）。 */
-  public record AddCartItemRequest(@NotBlank String itemId, Integer quantity) {}
+  /**
+   * カート追加要求DTO（Controller層に閉じる）。{@code quantity}
+   * は任意（既定1）。指定する場合は正の整数のみ許容する（{@code @Min(1)}・sec指摘対応。nullは検証対象外のため省略時は素通りし、Controller側で既定1に補完する）。
+   */
+  public record AddCartItemRequest(@NotBlank String itemId, @Min(1) Integer quantity) {}
 
   /** カート数量更新要求DTO（Controller層に閉じる）。 */
   public record UpdateCartItemRequest(int quantity) {}

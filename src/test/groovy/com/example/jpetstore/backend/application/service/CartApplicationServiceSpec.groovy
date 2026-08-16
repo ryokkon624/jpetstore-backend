@@ -144,6 +144,33 @@ class CartApplicationServiceSpec extends Specification {
         })
     }
 
+    def "SBD-2(sec指摘): addItemはrequestedQuantity<=0(#quantity)を拒否し、DBへ一切書き込まない"() {
+        when:
+        service.addItem("EST-1", quantity)
+
+        then:
+        thrown(IllegalArgumentException)
+        0 * cartCustomMapper.ensureCart(_)
+        0 * cartCustomMapper.selectItemForCart(_, _)
+        0 * cartCustomMapper.upsertCartItemQuantity(_)
+
+        where:
+        quantity << [0, -1, -100, Integer.MIN_VALUE]
+    }
+
+    def "SBD-2(sec指摘): addItemは既存数量との合算がintをオーバーフローする場合、400相当の例外を投げ負の数量を永続化しない"() {
+        given:
+        setupEnsureCart()
+        cartCustomMapper.selectItemForCart("EST-1", CART_ID) >> itemForCart("EST-1", 100, 1)
+
+        when: "既存数量1にInteger.MAX_VALUEを加算するとintがオーバーフローしIntegerMIN_VALUE付近へラップする"
+        service.addItem("EST-1", Integer.MAX_VALUE)
+
+        then:
+        thrown(IllegalArgumentException)
+        0 * cartCustomMapper.upsertCartItemQuantity(_)
+    }
+
     def "updateItem: 未知のitemIdはResourceNotFoundExceptionになる(AC4/SBD-10)"() {
         given:
         setupEnsureCart()
@@ -262,6 +289,20 @@ class CartApplicationServiceSpec extends Specification {
         then:
         1 * cartCustomMapper.deleteCartItem(CART_ID, "EST-3")
         0 * cartCustomMapper.upsertCartItemQuantity(_)
+    }
+
+    def "SBD-2(sec指摘): mergeは合算がintをオーバーフローしても例外にせず在庫数へクランプする(非拒否方針を維持)"() {
+        given:
+        setupEnsureCart()
+        cartCustomMapper.selectItemForCart("EST-1", CART_ID) >> itemForCart("EST-1", 100, 1)
+        cartCustomMapper.selectCartItems(CART_ID) >> []
+
+        when: "既存数量1にInteger.MAX_VALUEをマージするとintがオーバーフローする"
+        service.merge([new CartLine("EST-1", Integer.MAX_VALUE)])
+
+        then:
+        noExceptionThrown()
+        1 * cartCustomMapper.upsertCartItemQuantity({ CartItemWriteCustomEntity w -> w.itemId == "EST-1" && w.quantity == 100 })
     }
 
     def "mergeは数量0以下のclient行を無視する(防御的)"() {

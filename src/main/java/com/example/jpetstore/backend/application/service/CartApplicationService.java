@@ -50,11 +50,20 @@ public class CartApplicationService {
    * カートへの追加（AC1・legacyの「既にあれば+1」を一般化した明示数量版）。既存数量に {@code requestedQuantity}
    * を加算した絶対値を上限チェックのうえ書き込む。
    *
+   * <p>sec指摘対応（SBD-2）: {@code requestedQuantity} は正の整数のみ受理する（DTO側の {@code @Min(1)}
+   * に加え、直接呼び出し・バイパス経路への多層防御としてサービス層でも拒否する）。既存数量との加算は {@link Math#addExact(int, int)}
+   * でオーバーフロー検出する。オーバーフロー（intラップにより負の巨大な値が {@code newQuantity > stockQuantity}
+   * の上限チェックを迂回し、負の数量が永続化されてしまう不具合）を 例外化して防ぐ。
+   *
    * @throws ResourceNotFoundException 存在しない itemId（AC4/SBD-10）
-   * @throws IllegalArgumentException 在庫切れ、または加算後の数量が在庫数を超える場合（AC5/AC-neg1）
+   * @throws IllegalArgumentException 数量が0以下、在庫切れ、加算後の数量が在庫数を超える、または加算がint
+   *     をオーバーフローする場合（AC5/AC-neg1・SBD-2）
    */
   @Transactional
   public Cart addItem(String itemId, int requestedQuantity) {
+    if (requestedQuantity <= 0) {
+      throw new IllegalArgumentException("Requested quantity must be a positive integer");
+    }
     Long userId = currentUserId();
     Long cartId = ensureCartFor(userId);
     ItemForCartCustomEntity lookup = requireItemForCart(itemId, cartId);
@@ -62,7 +71,12 @@ public class CartApplicationService {
     if (lookup.getStockQuantity() <= 0) {
       throw new IllegalArgumentException("Item is out of stock");
     }
-    int newQuantity = lookup.getCurrentQuantity() + requestedQuantity;
+    int newQuantity;
+    try {
+      newQuantity = Math.addExact(lookup.getCurrentQuantity(), requestedQuantity);
+    } catch (ArithmeticException e) {
+      throw new IllegalArgumentException("Requested quantity exceeds available stock");
+    }
     if (newQuantity > lookup.getStockQuantity()) {
       throw new IllegalArgumentException("Requested quantity exceeds available stock");
     }
@@ -109,6 +123,9 @@ public class CartApplicationService {
    *
    * <p>未知の itemId（クライアント側の古いローカルデータ等）は例外にせず無視し、他の行の処理を継続する（防御的。ACに明記が無いための実装判断。詳細は
    * implementation-notes.md）。
+   *
+   * <p>sec指摘対応（SBD-2）: 既存数量との加算は {@link Math#addExact(int, int)}
+   * でオーバーフロー検出する。mergeは非拒否方針のため、オーバーフローした場合は例外化せず「事実上無制限の需要」とみなして在庫数へクランプする（他の正常な行の処理も継続する）。
    */
   @Transactional
   public Cart merge(List<CartLine> clientLines) {
@@ -123,8 +140,13 @@ public class CartApplicationService {
       if (lookup == null) {
         continue;
       }
-      int combined = lookup.getCurrentQuantity() + line.quantity();
-      int clamped = Math.min(combined, lookup.getStockQuantity());
+      int clamped;
+      try {
+        int combined = Math.addExact(lookup.getCurrentQuantity(), line.quantity());
+        clamped = Math.min(combined, lookup.getStockQuantity());
+      } catch (ArithmeticException e) {
+        clamped = lookup.getStockQuantity();
+      }
       if (clamped <= 0) {
         cartCustomMapper.deleteCartItem(cartId, line.itemId());
       } else {

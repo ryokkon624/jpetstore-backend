@@ -116,6 +116,41 @@ class CartControllerSpec extends IntegrationTestBase {
                 .andExpect(jsonPath('$.items[0].quantity').value(5))
     }
 
+    def "SBD-2(sec指摘): POST /api/cart/itemsでquantity=#quantityは400になり永続化されない"() {
+        expect:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"itemId":"EST-1","quantity":${quantity}}"""))
+                .andExpect(status().isBadRequest())
+
+        and: "カートは空のまま(永続化されていない)"
+        mockMvc.perform(get("/api/cart").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items.length()').value(0))
+
+        where:
+        quantity << [0, -1, -100]
+    }
+
+    def "SBD-2(sec指摘): intオーバーフローする加算要求は400になり、既存の正しい数量が負値で上書きされない"() {
+        given: "既存数量1を作る"
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":1}'))
+                .andExpect(status().isOk())
+
+        expect: "Integer.MAX_VALUEを追加するとintがオーバーフローし400で拒否される"
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":2147483647}'))
+                .andExpect(status().isBadRequest())
+
+        and: "既存の数量1は書き換わらず維持されている(負値で汚染されない)"
+        mockMvc.perform(get("/api/cart").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items[0].quantity').value(1))
+    }
+
     def "AC5: 在庫切れアイテム(EST-3, stock=0)の追加は400になる"() {
         expect:
         mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
