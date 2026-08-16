@@ -308,6 +308,66 @@ class CartControllerSpec extends IntegrationTestBase {
         quantity << [0, -1]
     }
 
+    def "#6 AC-neg1: XSRF-TOKEN Cookieの値とX-XSRF-TOKENヘッダの値が不一致だと403になる(攻撃者はCookie値を読めず正しいヘッダを付与できない状況の再現・double-submitの照合失敗)"() {
+        expect:
+        mockMvc.perform(post("/api/cart/items")
+                .cookie(accessTokenCookie, new Cookie("XSRF-TOKEN", "legit-looking-token-attacker-cannot-forge"))
+                .header("X-XSRF-TOKEN", "attacker-cannot-know-this-value")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":1}'))
+                .andExpect(status().isForbidden())
+    }
+
+    def "#6 AC-neg1: 外部オリジンを装いOriginヘッダのみ付けてCSRFトークン無しで送ると403になる(GETでのカート変更リンクも存在しない=非GETのみが状態変更経路)"() {
+        expect:
+        mockMvc.perform(post("/api/cart/items").cookie(accessTokenCookie)
+                .header("Origin", "https://evil.example.com")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":1}'))
+                .andExpect(status().isForbidden())
+    }
+
+    def "#6 AC2: PUTで同じ数量を2回送っても同じ結果になる(冪等)"() {
+        given:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":3}'))
+                .andExpect(status().isOk())
+
+        when:
+        def first = mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"quantity":5}'))
+                .andExpect(status().isOk())
+                .andReturn()
+        def second = mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"quantity":5}'))
+                .andExpect(status().isOk())
+                .andReturn()
+
+        then:
+        first.response.contentAsString == second.response.contentAsString
+    }
+
+    def "#6 AC2: DELETEを2回送っても2回目も200かつ空カートのまま(冪等)"() {
+        given:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":2}'))
+                .andExpect(status().isOk())
+
+        expect: "1回目の削除"
+        mockMvc.perform(delete("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items.length()').value(0))
+
+        and: "2回目も200かつ空のまま(冪等)"
+        mockMvc.perform(delete("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items.length()').value(0))
+    }
+
     def "計画②: POST /api/cart/mergeはclient行をサーバ側に加算し在庫数でクランプする"() {
         given: "サーバ側にEST-1を3個持つ状態"
         mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)

@@ -145,7 +145,9 @@ curl http://localhost:8080/api/ping   # => {"status":"ok"}
   `CsrfTokenRequestAttributeHandler`（**Xor ではない**。cookie-to-header の raw 値をそのまま検証するため。公式 SPA
   ガイド準拠）で検証する。`CsrfCookieFilter` が毎リクエストでトークン解決を強制する（Spring Security の遅延解決
   のままだと `XSRF-TOKEN` Cookie が発行されないため）。GET は Spring Security の既定どおり CSRF 対象外。
-  SameSite は `jwt.cookie.same-site`（既定 `Strict`）。SPA が same-site で配信できない場合は `Lax` に変更する。
+  SameSite/Secure は JWT Cookie と同じ `jwt.cookie.same-site`/`jwt.cookie.secure`（既定 `Strict`/`true`）を
+  `SecurityConfig#csrfTokenRepository` の `setCookieCustomizer` で再利用し付与する（#6・SBD-15）。SPA が
+  same-site で配信できない場合は `Lax` に変更する。
 - `JwtAuthenticationFilter` は `@Component` だが、Boot の自動フィルタ登録による二重実行を防ぐため
   `SecurityConfig` で `FilterRegistrationBean#setEnabled(false)` にしている（既知の Spring Boot 作法）。
 
