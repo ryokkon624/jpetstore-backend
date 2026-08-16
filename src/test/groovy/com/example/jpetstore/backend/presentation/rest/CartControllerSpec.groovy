@@ -236,6 +236,78 @@ class CartControllerSpec extends IntegrationTestBase {
                 .andExpect(jsonPath('$.subtotal').value(168.50d))
     }
 
+    def "#5 AC-neg1: 価格系フィールド(listPrice/lineTotal/productName)を注入しても無視されサーバのマスター値になる(SBD-2)"() {
+        expect:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":2,"listPrice":0.01,"lineTotal":0.01,"productName":"HACKED"}'))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items[0].listPrice').value(16.50d))
+                .andExpect(jsonPath('$.items[0].productName').value("Angelfish"))
+                .andExpect(jsonPath('$.subtotal').value(33.00d))
+    }
+
+    def "#5 AC2: PUT /api/cart/items/{itemId}でquantity=-1は400になり永続化されない(負数の明示拒否)"() {
+        given:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":2}'))
+                .andExpect(status().isOk())
+
+        expect:
+        mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"quantity":-1}'))
+                .andExpect(status().isBadRequest())
+
+        and: "既存数量2は書き換わらない"
+        mockMvc.perform(get("/api/cart").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items[0].quantity').value(2))
+    }
+
+    def "#5 AC2: PUT /api/cart/items/{itemId}でquantity欠落は400になる(@NotNull)"() {
+        expect:
+        mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{}'))
+                .andExpect(status().isBadRequest())
+    }
+
+    def "#5 AC2: PUT /api/cart/items/{itemId}でquantityが非数値は400になる(HttpMessageNotReadableException正規化)"() {
+        expect:
+        mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"quantity":"abc"}'))
+                .andExpect(status().isBadRequest())
+    }
+
+    def "#5 AC2: PUTでquantity=0は引き続き行削除になる(確定事項②・0=削除セマンティクスの温存回帰)"() {
+        given:
+        mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"itemId":"EST-1","quantity":2}'))
+                .andExpect(status().isOk())
+
+        expect:
+        mockMvc.perform(put("/api/cart/items/EST-1").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content('{"quantity":0}'))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.items.length()').value(0))
+    }
+
+    def "#5 AC2: POST /api/cart/mergeでquantity<=0(#quantity)の行は400になる(黙殺廃止)"() {
+        expect:
+        mockMvc.perform(post("/api/cart/merge").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""[{"itemId":"EST-1","quantity":${quantity}}]"""))
+                .andExpect(status().isBadRequest())
+
+        where:
+        quantity << [0, -1]
+    }
+
     def "計画②: POST /api/cart/mergeはclient行をサーバ側に加算し在庫数でクランプする"() {
         given: "サーバ側にEST-1を3個持つ状態"
         mockMvc.perform(post("/api/cart/items").with(csrf()).cookie(accessTokenCookie)

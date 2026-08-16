@@ -7,6 +7,7 @@ import com.example.jpetstore.backend.domain.cart.CartLine;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -50,7 +51,7 @@ public class CartController {
     return CartResponse.from(cartApplicationService.addItem(request.itemId(), quantity));
   }
 
-  /** カート内数量の明示更新（AC1）。{@code quantity<=0} は行削除になる（AC2）。 */
+  /** カート内数量の明示更新（AC1）。{@code quantity<=0} は行削除になる（AC2・0=削除セマンティクスは維持）。 */
   @PutMapping("/items/{itemId}")
   public CartResponse updateItem(
       @PathVariable String itemId, @Valid @RequestBody UpdateCartItemRequest request) {
@@ -84,8 +85,14 @@ public class CartController {
    */
   public record AddCartItemRequest(@NotBlank String itemId, @Min(1) Integer quantity) {}
 
-  /** カート数量更新要求DTO（Controller層に閉じる）。 */
-  public record UpdateCartItemRequest(int quantity) {}
+  /**
+   * カート数量更新要求DTO（Controller層に閉じる）。{@code quantity} は必須かつ0以上の整数のみ許容する （#5
+   * AC2・計画フェーズ確定②）。{@code @NotNull}=欠落400／{@code @Min(0)}=負数400。0は通過しサービス層で行削除になる
+   * （0=削除セマンティクスは維持）。非数値（例: {@code "abc"}）はデシリアライズ時点で {@link
+   * org.springframework.http.converter.HttpMessageNotReadableException} となり {@code
+   * GlobalExceptionHandler} で400化する。
+   */
+  public record UpdateCartItemRequest(@NotNull @Min(0) Integer quantity) {}
 
   /** マージ明細1行分のDTO（Controller層に閉じる）。 */
   public record MergeCartLineRequest(String itemId, int quantity) {}

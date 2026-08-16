@@ -126,6 +126,9 @@ public class CartApplicationService {
    *
    * <p>sec指摘対応（SBD-2）: 既存数量との加算は {@link Math#addExact(int, int)}
    * でオーバーフロー検出する。mergeは非拒否方針のため、オーバーフローした場合は例外化せず「事実上無制限の需要」とみなして在庫数へクランプする（他の正常な行の処理も継続する）。
+   *
+   * @throws IllegalArgumentException client行に {@code quantity<=0} が含まれる場合（#5
+   *     AC2・計画フェーズ確定②。黙殺廃止・400相当。{@code @Transactional} により部分適用されない）
    */
   @Transactional
   public Cart merge(List<CartLine> clientLines) {
@@ -134,7 +137,7 @@ public class CartApplicationService {
 
     for (CartLine line : clientLines) {
       if (line.quantity() <= 0) {
-        continue;
+        throw new IllegalArgumentException("Merge line quantity must be a positive integer");
       }
       ItemForCartCustomEntity lookup = cartCustomMapper.selectItemForCart(line.itemId(), cartId);
       if (lookup == null) {
