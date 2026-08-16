@@ -12,8 +12,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 正規化エラーハンドリング基盤（AC4・SBD-10）。
@@ -87,6 +90,39 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleIllegalArgument(
       IllegalArgumentException e, HttpServletRequest request) {
     return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", e.getMessage(), request);
+  }
+
+  /**
+   * クエリ/パスパラメータが宣言型へ変換できない（非数値・桁あふれ等の型不一致）場合を 400 として正規化する（#3 AC-neg1・SBD-10）。専用ハンドラが無いと下の {@link
+   * #handleUnexpected} が拾い 500 に丸めてしまう。
+   *
+   * <p>方針統一（#3 DEV計画）: 型として変換できない入力のみをここで 400 にする。変換自体は成功するが範囲外の値（例: {@code page=9999}）は {@link
+   * com.example.jpetstore.backend.domain.common.PageRequest} 側でクランプし空 200 のまま返す。
+   */
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleTypeMismatch(
+      MethodArgumentTypeMismatchException e, HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Invalid parameter type", request);
+  }
+
+  /**
+   * 必須クエリパラメータの欠落を 400 として正規化する（#3 AC-neg1・SBD-10）。専用ハンドラが無いと下の {@link #handleUnexpected} が拾い 500
+   * に丸めてしまう。
+   */
+  @ExceptionHandler(MissingServletRequestParameterException.class)
+  public ResponseEntity<ErrorResponse> handleMissingParameter(
+      MissingServletRequestParameterException e, HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Missing required parameter", request);
+  }
+
+  /**
+   * どのハンドラマッピング・静的リソースにも一致しない未知パスへのアクセスを 404 として正規化する（#3 AC-neg1・SBD-10）。専用ハンドラが無いと下の {@link
+   * #handleUnexpected} が拾い 500 に丸めてしまう。
+   */
+  @ExceptionHandler(NoResourceFoundException.class)
+  public ResponseEntity<ErrorResponse> handleNoResourceFound(
+      NoResourceFoundException e, HttpServletRequest request) {
+    return build(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource not found", request);
   }
 
   @ExceptionHandler(Exception.class)

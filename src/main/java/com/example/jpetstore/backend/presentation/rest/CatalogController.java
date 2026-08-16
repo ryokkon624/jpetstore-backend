@@ -55,6 +55,22 @@ public class CatalogController {
         ProductResponse::from);
   }
 
+  /**
+   * 商品検索（#2 AC1/AC2/AC3・ID-29）。{@code keyword} は空でも400にせず空結果200へ正規化する（AC2）。 {@code categoryId}
+   * は任意（指定時はその配下に限定）。静的パス {@code /products/search} は {@code /products/{productId}}
+   * より具体的なパターンとして優先解決される（Spring MVC標準の優先順位）。
+   */
+  @GetMapping("/products/search")
+  public PageResponse<ProductResponse> searchProducts(
+      @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) String categoryId,
+      @RequestParam(required = false) Integer page,
+      @RequestParam(required = false) Integer size) {
+    return PageResponse.from(
+        catalogApplicationService.searchProducts(keyword, categoryId, page, size),
+        ProductResponse::from);
+  }
+
   @GetMapping("/products/{productId}")
   public ProductResponse getProduct(@PathVariable String productId) {
     return ProductResponse.from(catalogApplicationService.getProduct(productId));

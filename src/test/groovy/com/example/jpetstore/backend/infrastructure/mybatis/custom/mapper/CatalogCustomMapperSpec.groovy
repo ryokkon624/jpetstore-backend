@@ -81,4 +81,55 @@ class CatalogCustomMapperSpec extends IntegrationTestBase {
         and:
         mapper.selectItemById("NOPE") == null
     }
+
+    def "[L2] searchProductsは単一語'%dog%'でcategory_id/descriptionのOR一致7件を返す(旧同値)"() {
+        given:
+        // category_id=DOGSの6件 + REPTILESのRP-SN-01(description='Doubles as a watch dog')が
+        // descriptionマッチでヒットする（legacyのkeyword検索がcategory横断でヒットする挙動を踏襲）。
+        def rows = mapper.searchProducts(["%dog%"], null, 0, 20)
+        def count = mapper.countSearchProducts(["%dog%"], null)
+
+        expect:
+        count == 7
+        rows.size() == 7
+        rows*.productId.toSet() == ["K9-BD-01", "K9-PO-02", "K9-DL-01", "K9-RT-01", "K9-RT-02", "K9-CW-01", "RP-SN-01"].toSet()
+    }
+
+    def "[L2] searchProductsは複数語をOR結合する('%fish%'と'%dog%'で11件=4+7、旧同値)"() {
+        expect:
+        mapper.countSearchProducts(["%fish%", "%dog%"], null) == 11
+    }
+
+    def "AC1: searchProductsはcategoryId指定でその配下に限定する(dog×DOGS=6件、RP-SN-01を除外)"() {
+        given:
+        def rows = mapper.searchProducts(["%dog%"], "DOGS", 0, 20)
+
+        expect:
+        mapper.countSearchProducts(["%dog%"], "DOGS") == 6
+        rows.size() == 6
+        rows.every { it.categoryId == "DOGS" }
+    }
+
+    def "ID-29: LIKEメタ文字はエスケープ済みならリテラル一致し、seedにアンダースコアを含む語が無いため0件になる"() {
+        expect:
+        mapper.countSearchProducts(["%\\_%"], null) == 0
+    }
+
+    def "AC-neg1: SQLメタ文字を含む語(パラメタライズ)でも注入は成立せず単なる不一致で0件になる"() {
+        expect:
+        mapper.countSearchProducts(["%' OR 1=1 --%"], null) == 0
+    }
+
+    def "searchProductsはLIMIT/OFFSETでページングできる(dog=7件をsize=3で3頁)"() {
+        given:
+        def page1 = mapper.searchProducts(["%dog%"], null, 0, 3)
+        def page2 = mapper.searchProducts(["%dog%"], null, 3, 3)
+        def page3 = mapper.searchProducts(["%dog%"], null, 6, 3)
+
+        expect:
+        page1.size() == 3
+        page2.size() == 3
+        page3.size() == 1
+        (page1 + page2 + page3)*.productId.toSet().size() == 7
+    }
 }
