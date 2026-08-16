@@ -40,4 +40,19 @@ public interface CatalogCustomMapper {
   long countItemsByProductId(@Param("productId") String productId);
 
   ItemDetailCustomEntity selectItemById(@Param("itemId") String itemId);
+
+  /**
+   * 商品検索（#2 AC1/AC3・ID-29）。{@code patterns} は {@code ProductSearchTerms} が語分割・LIKEエスケープ済みの {@code
+   * %...%} パターン列（空であってはならない。空キーワードは {@code CatalogApplicationService}
+   * 側で空結果へ短絡する）。name/category_id/description のいずれかに各パターンがOR一致し、パターン間もOR結合する （legacy {@code
+   * searchProductList} の keyword OR 挙動を踏襲・[L2]）。{@code categoryId} は任意で、指定時は AND 条件でその配下に限定する。
+   */
+  List<ProductCustomEntity> searchProducts(
+      @Param("patterns") List<String> patterns,
+      @Param("categoryId") String categoryId,
+      @Param("offset") int offset,
+      @Param("limit") int limit);
+
+  long countSearchProducts(
+      @Param("patterns") List<String> patterns, @Param("categoryId") String categoryId);
 }

@@ -213,4 +213,75 @@ class CatalogControllerSpec extends IntegrationTestBase {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath('$.code').value("NOT_FOUND"))
     }
+
+    def "#2 AC1/AC4: 未認証でGET /api/products/search?keyword=dogを叩くと200でcategory横断7件を返す([L2]旧同値)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "dog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.totalElements').value(7))
+                .andExpect(jsonPath('$.content.length()').value(7))
+    }
+
+    def "#2 [L2]: 複数語keyword='fish dog'はOR結合され11件を返す(旧同値)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "fish dog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.totalElements').value(11))
+    }
+
+    def "#2 AC1: categoryIdを指定すると配下に限定される(dog×DOGS=6件、RP-SN-01を除外)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "dog").param("categoryId", "DOGS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.totalElements').value(6))
+                .andExpect(jsonPath('$.content[?(@.categoryId != "DOGS")]').isEmpty())
+    }
+
+    def "#2 AC2: 空/空白keywordは500やtraceを出さず空結果200へ正規化される"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+                .andExpect(jsonPath('$.totalElements').value(0))
+
+        and:
+        mockMvc.perform(get("/api/products/search"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+    }
+
+    def "#2 AC-neg1(SBD-17): SQLメタ文字を含むkeywordを入れても注入は成立せず200空結果になる(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "' OR 1=1 --"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+    }
+
+    def "#2 AC-neg2(#3依存): 検索結果のstale頁送り(範囲外の有効なpage)は空200になる(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "dog").param("page", "9999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+                .andExpect(jsonPath('$.totalElements').value(7))
+    }
+
+    def "#2 AC-neg2(#3依存): 検索の非数値pageは400に正規化される(500でない)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "dog").param("page", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath('$.code').value("BAD_REQUEST"))
+    }
+
+    def "#2 ID-29: LIKEメタ文字'_'はエスケープされリテラル一致するため0件になる(意図せぬ全件マッチ防止)"() {
+        expect:
+        mockMvc.perform(get("/api/products/search").param("keyword", "_"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(0))
+    }
+
+    def "#2 AC4: 認証済み+CSRF有でもPOST /api/products/searchは405になる(検索も状態変更不可)"() {
+        expect:
+        mockMvc.perform(post("/api/products/search").with(csrf()).cookie(accessTokenCookie()))
+                .andExpect(status().isMethodNotAllowed())
+    }
 }

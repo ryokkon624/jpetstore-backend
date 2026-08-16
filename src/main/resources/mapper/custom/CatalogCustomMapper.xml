@@ -67,4 +67,36 @@
          WHERE i.item_id = #{itemId}
     </select>
 
+    <!--
+      #2 商品検索（AC1/AC3・ID-29）。patternsはProductSearchTermsが語分割・LIKEエスケープ済みの
+      %...%パターン列（呼び出し元で空でないことを保証）。name/category_id/descriptionのいずれかに
+      各パターンがOR一致し、パターン間もOR結合する（legacy searchProductListのkeyword OR挙動を踏襲・[L2]）。
+      ESCAPE '\\'はgeneratorConfig.xmlの先例と同じ書式（MySQL文字列リテラルで\\が実際の1文字の\になる）。
+      categoryIdは任意でAND条件として付加する。
+    -->
+    <sql id="searchProductsWhere">
+        <where>
+            <foreach collection="patterns" item="pattern" open="(" separator=" OR " close=")">
+                (name LIKE #{pattern} ESCAPE '\\' OR category_id LIKE #{pattern} ESCAPE '\\' OR description LIKE #{pattern} ESCAPE '\\')
+            </foreach>
+            <if test="categoryId != null">
+                AND category_id = #{categoryId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="searchProducts" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProductCustomEntity">
+        SELECT product_id, category_id, name, description
+          FROM m_product
+        <include refid="searchProductsWhere"/>
+         ORDER BY product_id
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countSearchProducts" resultType="long">
+        SELECT COUNT(*)
+          FROM m_product
+        <include refid="searchProductsWhere"/>
+    </select>
+
 </mapper>

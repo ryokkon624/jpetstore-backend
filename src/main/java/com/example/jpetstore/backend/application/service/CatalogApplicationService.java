@@ -4,6 +4,7 @@ import com.example.jpetstore.backend.domain.catalog.Category;
 import com.example.jpetstore.backend.domain.catalog.ItemDetail;
 import com.example.jpetstore.backend.domain.catalog.ItemSummary;
 import com.example.jpetstore.backend.domain.catalog.Product;
+import com.example.jpetstore.backend.domain.catalog.ProductSearchTerms;
 import com.example.jpetstore.backend.domain.catalog.StockStatusCalculator;
 import com.example.jpetstore.backend.domain.common.Page;
 import com.example.jpetstore.backend.domain.common.PageRequest;
@@ -86,6 +87,32 @@ public class CatalogApplicationService {
             .map(this::toItemSummary)
             .toList();
     long totalElements = catalogCustomMapper.countItemsByProductId(productId);
+    return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
+  }
+
+  /**
+   * 商品検索（#2 AC1/AC2/AC3・ID-29）。キーワードを {@link ProductSearchTerms} で語分割・LIKEエスケープし、
+   * name/category_id/description へのOR一致（パターン間もOR）で検索する（legacy 挙動踏襲・[L2]）。
+   *
+   * <p>AC2: null・空文字・空白のみのキーワードは（500やtraceを出さず）空結果へ正規化する。{@code categoryId} は任意で、 指定時はその配下に限定する。
+   */
+  public Page<Product> searchProducts(
+      String keyword, String categoryId, Integer page, Integer size) {
+    PageRequest pageRequest = PageRequest.of(page, size);
+    ProductSearchTerms terms = ProductSearchTerms.from(keyword);
+    if (terms.isEmpty()) {
+      return Page.of(List.of(), pageRequest.page(), pageRequest.size(), 0);
+    }
+    String normalizedCategoryId = (categoryId == null || categoryId.isBlank()) ? null : categoryId;
+    List<Product> content =
+        catalogCustomMapper
+            .searchProducts(
+                terms.patterns(), normalizedCategoryId, pageRequest.offset(), pageRequest.size())
+            .stream()
+            .map(this::toProduct)
+            .toList();
+    long totalElements =
+        catalogCustomMapper.countSearchProducts(terms.patterns(), normalizedCategoryId);
     return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
   }
 
