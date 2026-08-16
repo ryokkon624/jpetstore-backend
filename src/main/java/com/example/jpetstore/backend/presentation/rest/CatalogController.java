@@ -4,6 +4,7 @@ import com.example.jpetstore.backend.application.service.CatalogApplicationServi
 import com.example.jpetstore.backend.domain.catalog.Category;
 import com.example.jpetstore.backend.domain.catalog.ItemDetail;
 import com.example.jpetstore.backend.domain.catalog.ItemSummary;
+import com.example.jpetstore.backend.domain.catalog.OrderabilityResult;
 import com.example.jpetstore.backend.domain.catalog.Product;
 import com.example.jpetstore.backend.presentation.rest.dto.PageResponse;
 import java.math.BigDecimal;
@@ -91,6 +92,17 @@ public class CatalogController {
     return ItemDetailResponse.from(catalogApplicationService.getItem(itemId));
   }
 
+  /**
+   * 指定数量でのアイテム注文可否を判定する（#4 D1）。未ログイン（カートAPIが呼べない）でも数量検証できるように公開する。既存の {@code /api/items/**}
+   * GETスコープpermitAllにそのまま収まるため {@code SecurityConfig}
+   * 変更は不要。orderable真偽＋安定した理由コードのみ返し、在庫数そのものは返さない（ID-28）。
+   */
+  @GetMapping("/items/{itemId}/orderable")
+  public OrderableResponse checkOrderable(
+      @PathVariable String itemId, @RequestParam(defaultValue = "1") int quantity) {
+    return OrderableResponse.from(catalogApplicationService.checkOrderable(itemId, quantity));
+  }
+
   /** カテゴリ応答DTO（Controller層に閉じる）。 */
   public record CategoryResponse(String categoryId, String name, String description) {
     static CategoryResponse from(Category category) {
@@ -121,6 +133,13 @@ public class CatalogController {
           item.attribute1(),
           item.listPrice(),
           item.stockStatus().getCode());
+    }
+  }
+
+  /** orderable判定応答DTO（Controller層に閉じる）。在庫数そのものは含めない（ID-28）。 */
+  public record OrderableResponse(boolean orderable, String reason) {
+    static OrderableResponse from(OrderabilityResult result) {
+      return new OrderableResponse(result.orderable(), result.reason());
     }
   }
 

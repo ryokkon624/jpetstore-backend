@@ -3,6 +3,7 @@ package com.example.jpetstore.backend.application.service;
 import com.example.jpetstore.backend.domain.catalog.Category;
 import com.example.jpetstore.backend.domain.catalog.ItemDetail;
 import com.example.jpetstore.backend.domain.catalog.ItemSummary;
+import com.example.jpetstore.backend.domain.catalog.OrderabilityResult;
 import com.example.jpetstore.backend.domain.catalog.Product;
 import com.example.jpetstore.backend.domain.catalog.ProductSearchTerms;
 import com.example.jpetstore.backend.domain.catalog.StockStatusCalculator;
@@ -130,6 +131,28 @@ public class CatalogApplicationService {
         entity.getAttribute1(),
         entity.getListPrice(),
         StockStatusCalculator.of(entity.getQuantity()));
+  }
+
+  /**
+   * 指定数量でアイテムを注文可能か判定する（#4 D1）。未ログインでも呼べる公開EPの実体。在庫数そのものは返さず、orderable真偽＋安定した理由コードのみ返す（ID-28）。
+   *
+   * @throws ResourceNotFoundException 存在しない itemId（AC4/SBD-10）
+   */
+  public OrderabilityResult checkOrderable(String itemId, int quantity) {
+    ItemDetailCustomEntity entity = catalogCustomMapper.selectItemById(itemId);
+    if (entity == null) {
+      throw new ResourceNotFoundException("Item not found: " + itemId);
+    }
+    if (quantity <= 0) {
+      return OrderabilityResult.notOrderable(OrderabilityResult.REASON_INVALID_QUANTITY);
+    }
+    if (entity.getQuantity() <= 0) {
+      return OrderabilityResult.notOrderable(OrderabilityResult.REASON_OUT_OF_STOCK);
+    }
+    if (quantity > entity.getQuantity()) {
+      return OrderabilityResult.notOrderable(OrderabilityResult.REASON_EXCEEDS_STOCK);
+    }
+    return OrderabilityResult.ok();
   }
 
   private Category toCategory(CategoryCustomEntity entity) {
