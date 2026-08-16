@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -73,6 +74,17 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleValidation(
       MethodArgumentNotValidException e, HttpServletRequest request) {
     return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Validation failed", request);
+  }
+
+  /**
+   * リクエストボディが宣言型へデシリアライズできない（非数値・不正JSON等の型不一致）場合を 400 として正規化する（#5 AC2・SBD-10）。専用ハンドラが無いと下の {@link
+   * #handleUnexpected} が拾い 500 に丸めてしまう（例: {@code UpdateCartItemRequest.quantity} に文字列 {@code "abc"}
+   * を送る等）。
+   */
+  @ExceptionHandler(HttpMessageNotReadableException.class)
+  public ResponseEntity<ErrorResponse> handleMessageNotReadable(
+      HttpMessageNotReadableException e, HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Malformed request body", request);
   }
 
   /**

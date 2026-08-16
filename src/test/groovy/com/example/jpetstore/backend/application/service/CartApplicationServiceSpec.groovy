@@ -305,16 +305,19 @@ class CartApplicationServiceSpec extends Specification {
         1 * cartCustomMapper.upsertCartItemQuantity({ CartItemWriteCustomEntity w -> w.itemId == "EST-1" && w.quantity == 100 })
     }
 
-    def "mergeは数量0以下のclient行を無視する(防御的)"() {
+    def "#5 AC2(計画フェーズ確定②): mergeはquantity<=0(#quantity)の行を黙殺せず例外を投げる(黙殺廃止・400相当)"() {
         given:
         setupEnsureCart()
-        cartCustomMapper.selectCartItems(CART_ID) >> []
 
         when:
-        service.merge([new CartLine("EST-1", 0)])
+        service.merge([new CartLine("EST-1", quantity)])
 
         then:
+        thrown(IllegalArgumentException)
         0 * cartCustomMapper.selectItemForCart(_, _)
         0 * cartCustomMapper.upsertCartItemQuantity(_)
+
+        where:
+        quantity << [0, -1, -100]
     }
 }

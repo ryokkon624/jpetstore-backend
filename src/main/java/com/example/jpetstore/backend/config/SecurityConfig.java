@@ -4,6 +4,7 @@ import com.example.jpetstore.backend.infrastructure.security.CsrfCookieFilter;
 import com.example.jpetstore.backend.infrastructure.security.JwtAuthenticationFilter;
 import com.example.jpetstore.backend.presentation.rest.security.AuditingAccessDeniedHandler;
 import com.example.jpetstore.backend.presentation.rest.security.AuditingAuthenticationEntryPoint;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 /**
@@ -45,7 +47,8 @@ public class SecurityConfig {
       HttpSecurity http,
       JwtAuthenticationFilter jwtAuthenticationFilter,
       AuditingAccessDeniedHandler accessDeniedHandler,
-      AuditingAuthenticationEntryPoint authenticationEntryPoint)
+      AuditingAuthenticationEntryPoint authenticationEntryPoint,
+      CsrfTokenRepository csrfTokenRepository)
       throws Exception {
     CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
     http.authorizeHttpRequests(
@@ -81,7 +84,7 @@ public class SecurityConfig {
         .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .csrf(
             csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                csrf.csrfTokenRepository(csrfTokenRepository)
                     .csrfTokenRequestHandler(csrfRequestHandler))
         .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
@@ -93,6 +96,23 @@ public class SecurityConfig {
         .formLogin(form -> form.disable())
         .httpBasic(basic -> basic.disable());
     return http.build();
+  }
+
+  /**
+   * SPA 向けの {@code XSRF-TOKEN} Cookie リポジトリ（AC3・SBD-3/15・#6 計画フェーズ確定①）。{@code
+   * CookieCsrfTokenRepository#withHttpOnlyFalse()}（SPAがJSでCookieを読み取りヘッダへ転記できるよう httpOnly=false
+   * を維持）に加え、{@link CookieCsrfTokenRepository#setCookieCustomizer} でSameSite/Secureを付与する。JWT
+   * Cookie（access/refresh・{@code AuthCookieSupport}）と同じ {@code jwt.cookie.same-site}/{@code
+   * jwt.cookie.secure}（既定 Strict/Secure）を再利用し、全 Cookie の属性値を統一する （新規の Origin フィルタ・allowlist
+   * は追加しない。既存の cookie-to-header double-submit ＋ SameSite=Strict で 外部オリジンからの状態変更を拒否する）。
+   */
+  @Bean
+  public CsrfTokenRepository csrfTokenRepository(
+      @Value("${jwt.cookie.secure:true}") boolean secure,
+      @Value("${jwt.cookie.same-site:Strict}") String sameSite) {
+    CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    repository.setCookieCustomizer(builder -> builder.sameSite(sameSite).secure(secure));
+    return repository;
   }
 
   /**
