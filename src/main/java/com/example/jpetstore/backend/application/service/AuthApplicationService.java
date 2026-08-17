@@ -79,11 +79,24 @@ public class AuthApplicationService {
     AuthenticatedUserDetails principal = (AuthenticatedUserDetails) authResult.getPrincipal();
     AuthenticatedUser user = principal.authenticatedUser();
 
+    issueTokensFor(user, response);
+    return user;
+  }
+
+  /**
+   * credential 照合を経ずに、指定ユーザー宛の access/refresh を新規発行して httpOnly Cookie にセットする（#13 E9）。
+   *
+   * <p>{@link #login} 末尾から抽出した共通処理。ユーザー登録直後の自動ログイン（{@code
+   * RegistrationApplicationService#register}）が、パスワード照合をスキップしたうえでこのメソッドを再利用する
+   * （新規作成した本人であることは登録処理自体が保証しているため、照合は不要）。
+   *
+   * <p>常に新規署名のトークンを発行する（供給された既存トークンをそのまま再利用・エコーすることはない）ため、 ログイン成功時と同様にセッション固定化を防止する（AC2・SBD-4）。
+   */
+  public void issueTokensFor(AuthenticatedUser user, HttpServletResponse response) {
     String accessToken = jwtService.generateAccessToken(user);
     String refreshToken = jwtService.generateRefreshToken(user);
     cookieSupport.writeAccessTokenCookie(response, accessToken, jwtProperties.accessTokenTtl());
     cookieSupport.writeRefreshTokenCookie(response, refreshToken, jwtProperties.refreshTokenTtl());
-    return user;
   }
 
   /**

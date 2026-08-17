@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #13 ユーザー登録（m_account / m_signon / m_profile）の永続化SQL。
+  userIdはm_account.user_id AUTO_INCREMENT。useGeneratedKeysでaccount.userIdへ補完し、
+  signon/profileのINSERTへ引き渡す（MyBatisAccountRepository#register参照）。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountRegistrationCustomMapper">
+
+    <insert id="insertAccount" useGeneratedKeys="true" keyProperty="userId"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountRegistrationCustomEntity">
+        INSERT INTO m_account (
+            username, email, first_name, last_name, status,
+            address1, address2, city, state, postal_code, country, phone,
+            create_user_id, create_program, update_user_id, update_program
+        ) VALUES (
+            #{username}, #{email}, #{firstName}, #{lastName}, #{status},
+            #{address1}, #{address2}, #{city}, #{state}, #{postalCode}, #{country}, #{phone},
+            #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram}
+        )
+    </insert>
+
+    <insert id="insertSignon"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonRegistrationCustomEntity">
+        INSERT INTO m_signon (
+            user_id, password_hash,
+            create_user_id, create_program, update_user_id, update_program
+        ) VALUES (
+            #{userId}, #{passwordHash},
+            #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram}
+        )
+    </insert>
+
+    <insert id="insertProfile"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileRegistrationCustomEntity">
+        INSERT INTO m_profile (
+            user_id, language_preference, favorite_category_id,
+            create_user_id, create_program, update_user_id, update_program
+        ) VALUES (
+            #{userId}, #{languagePreference}, #{favoriteCategoryId},
+            #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram}
+        )
+    </insert>
+
+</mapper>
