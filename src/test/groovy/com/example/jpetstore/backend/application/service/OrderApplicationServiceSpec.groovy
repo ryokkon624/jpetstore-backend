@@ -1,67 +1,68 @@
 package com.example.jpetstore.backend.application.service
 
+import com.example.jpetstore.backend.domain.cart.Cart
+import com.example.jpetstore.backend.domain.cart.CartItem
+import com.example.jpetstore.backend.domain.cart.CartRepository
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException
+import com.example.jpetstore.backend.domain.inventory.InventoryRepository
 import com.example.jpetstore.backend.domain.order.OrderAddress
+import com.example.jpetstore.backend.domain.order.OrderRepository
 import com.example.jpetstore.backend.domain.order.PlaceOrderCommand
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartHeaderCustomEntity
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemCustomEntity
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderHeaderWriteCustomEntity
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCustomMapper
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.InventoryCustomMapper
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.OrderCustomMapper
 import spock.lang.Specification
 
 /**
- * #8: 注文確定ユースケース（サーバ再計算・在庫の原子的引当・成功/失敗監査）を検証する。
+ * #8/#30: 注文確定ユースケース（サーバ再計算・在庫の原子的引当・成功/失敗監査）を検証する。
  * AC1(SBD-2)・AC2/AC3(arch §4.1)・AC6(SBD-14)・AC-neg1〜3を実証する。
+ *
+ * <p>#30でCartCustomMapper/OrderCustomMapper/InventoryCustomMapper直呼びから{@link CartRepository}/
+ * {@link OrderRepository}/{@link InventoryRepository}（Domain層）経由へretrofitした。並行オーケストレーション
+ * （item_id昇順固定順ループ・ガード減算＋{@code AffectedRows.requireUpdated}・カート全クリア・成功/失敗監査）は
+ * 引き続き本Serviceに残す（O1・案A）。Repositoryは単文アトミック委譲に純化したため、WHOカラム（create/update_user_id）
+ * の検証は{@code MyBatisOrderRepositorySpec}/{@code MyBatisInventoryRepositorySpec}側で行う。
  */
 class OrderApplicationServiceSpec extends Specification {
 
     private static final Long USER_ID = 7L
     private static final Long CART_ID = 55L
 
-    CartCustomMapper cartCustomMapper = Mock()
-    OrderCustomMapper orderCustomMapper = Mock()
-    InventoryCustomMapper inventoryCustomMapper = Mock()
+    CartRepository cartRepository = Mock()
+    OrderRepository orderRepository = Mock()
+    InventoryRepository inventoryRepository = Mock()
     AuditLogRecorder auditLogRecorder = Mock()
     CurrentUserProvider currentUserProvider = Stub() {
         requireCurrentUser() >> new AuthenticatedUser(USER_ID, "order_user", ["USER"])
     }
 
     OrderApplicationService service = new OrderApplicationService(
-            cartCustomMapper, orderCustomMapper, inventoryCustomMapper, currentUserProvider, auditLogRecorder)
+            cartRepository, orderRepository, inventoryRepository, currentUserProvider, auditLogRecorder)
 
     private static OrderAddress address(String firstName = "Taro") {
         new OrderAddress(firstName, "Yamada", "1 Test St", null, "Testville", "CA", "90000", "USA")
     }
 
-    private static CartItemCustomEntity cartItem(String itemId, int quantity, BigDecimal listPrice) {
-        def e = new CartItemCustomEntity()
-        e.itemId = itemId
-        e.productId = "P-${itemId}"
-        e.productName = "Product ${itemId}"
-        e.attribute1 = null
-        e.listPrice = listPrice
-        e.quantity = quantity
-        e.stockQuantity = 100
-        e
+    private static CartItem cartItem(String itemId, int quantity, BigDecimal listPrice) {
+        CartItem.reconstruct(itemId, "P-${itemId}", "Product ${itemId}", null, quantity, listPrice, 100)
+    }
+
+    private static Cart cartOf(CartItem... items) {
+        Cart.reconstruct(CART_ID, items as List)
     }
 
     void setup() {
-        cartCustomMapper.ensureCart(_ as CartHeaderCustomEntity) >> { CartHeaderCustomEntity h -> h.cartId = CART_ID }
+        cartRepository.ensureCart(USER_ID) >> CART_ID
     }
 
     def "AC1/AC-neg1: 合計はクライアント値を無視しΣ(listPrice×quantity)でサーバ再計算される"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [
+        cartRepository.findByCartId(CART_ID) >> cartOf(
                 cartItem("EST-1", 2, 16.50),
                 cartItem("EST-22", 1, 135.50),
-        ]
-        inventoryCustomMapper.decreaseInventory(_) >> 1
-        orderCustomMapper.insertOrderHeader(_) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 100L }
+        )
+        inventoryRepository.decrease(_, _) >> 1
+        orderRepository.insertHeader(_) >> 100L
 
         when:
         def confirmation = service.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -73,33 +74,33 @@ class OrderApplicationServiceSpec extends Specification {
 
     def "AC2/AC3(arch §4.1): item_id昇順でガード減算と明細INSERTが行われる"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [
+        cartRepository.findByCartId(CART_ID) >> cartOf(
                 cartItem("EST-1", 1, 10.00),
                 cartItem("EST-2", 2, 5.00),
-        ]
-        orderCustomMapper.insertOrderHeader(_) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 200L }
+        )
+        orderRepository.insertHeader(_) >> 200L
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
 
         then: "EST-1のガード減算が先"
-        1 * inventoryCustomMapper.decreaseInventory({ it.itemId == "EST-1" && it.quantity == 1 }) >> 1
+        1 * inventoryRepository.decrease("EST-1", 1) >> 1
 
         then: "EST-1の明細(line_num=1)"
-        1 * orderCustomMapper.insertOrderLine({ it.itemId == "EST-1" && it.lineNum == 1 && it.orderId == 200L })
+        1 * orderRepository.insertLine(200L, { it.itemId() == "EST-1" && it.lineNum() == 1 })
 
         then: "EST-2のガード減算が後"
-        1 * inventoryCustomMapper.decreaseInventory({ it.itemId == "EST-2" && it.quantity == 2 }) >> 1
+        1 * inventoryRepository.decrease("EST-2", 2) >> 1
 
         then: "EST-2の明細(line_num=2)"
-        1 * orderCustomMapper.insertOrderLine({ it.itemId == "EST-2" && it.lineNum == 2 && it.orderId == 200L })
+        1 * orderRepository.insertLine(200L, { it.itemId() == "EST-2" && it.lineNum() == 2 })
     }
 
     def "AC2/AC-neg2: 在庫不足(affected rows=0)はInsufficientStockExceptionになり明細・カートクリアは行われない"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-3", 5, 10.00)]
-        orderCustomMapper.insertOrderHeader(_) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 300L }
-        inventoryCustomMapper.decreaseInventory(_) >> 0
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-3", 5, 10.00))
+        orderRepository.insertHeader(_) >> 300L
+        inventoryRepository.decrease(_, _) >> 0
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -107,13 +108,13 @@ class OrderApplicationServiceSpec extends Specification {
         then:
         def e = thrown(InsufficientStockException)
         e.itemId() == "EST-3"
-        0 * orderCustomMapper.insertOrderLine(_)
-        0 * cartCustomMapper.deleteCartItems(_)
+        0 * orderRepository.insertLine(*_)
+        0 * cartRepository.clearItems(_)
     }
 
     def "計画フェーズ確定②: 空カートはInsufficientStockException(itemId=null)で拒否され注文ヘッダを作らない"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> []
+        cartRepository.findByCartId(CART_ID) >> cartOf()
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -121,29 +122,29 @@ class OrderApplicationServiceSpec extends Specification {
         then:
         def e = thrown(InsufficientStockException)
         e.itemId() == null
-        0 * orderCustomMapper.insertOrderHeader(_)
+        0 * orderRepository.insertHeader(_)
     }
 
     def "AC6: 成功時はカートを全クリアしSUCCESS監査を記録する"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-1", 1, 10.00)]
-        orderCustomMapper.insertOrderHeader(_) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 400L }
-        inventoryCustomMapper.decreaseInventory(_) >> 1
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-1", 1, 10.00))
+        orderRepository.insertHeader(_) >> 400L
+        inventoryRepository.decrease(_, _) >> 1
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
 
         then:
-        1 * cartCustomMapper.deleteCartItems(CART_ID)
+        1 * cartRepository.clearItems(CART_ID)
         1 * auditLogRecorder.recordStateChange("ORDER_CREATE", "ORDER", "400", "SUCCESS", _)
         0 * auditLogRecorder.recordStateChangeIndependently(*_)
     }
 
     def "AC6(計画フェーズ確定③): 在庫不足時はREQUIRES_NEWの別tx経路でFAILURE監査を記録する"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-3", 5, 10.00)]
-        orderCustomMapper.insertOrderHeader(_) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 500L }
-        inventoryCustomMapper.decreaseInventory(_) >> 0
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-3", 5, 10.00))
+        orderRepository.insertHeader(_) >> 500L
+        inventoryRepository.decrease(_, _) >> 0
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -156,7 +157,7 @@ class OrderApplicationServiceSpec extends Specification {
 
     def "AC6: 空カート拒否時もREQUIRES_NEWの別tx経路でFAILURE監査を記録する"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> []
+        cartRepository.findByCartId(CART_ID) >> cartOf()
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -168,37 +169,35 @@ class OrderApplicationServiceSpec extends Specification {
 
     def "AC-neg3: 注文は認証プリンシパルのuserIdに紐づく(リクエストにusernameフィールドは無い)"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-1", 1, 10.00)]
-        inventoryCustomMapper.decreaseInventory(_) >> 1
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-1", 1, 10.00))
+        inventoryRepository.decrease(_, _) >> 1
 
         when:
         service.placeOrder(new PlaceOrderCommand(address(), null, false))
 
         then:
-        1 * orderCustomMapper.insertOrderHeader({
-            it.userId == USER_ID && it.createUserId == USER_ID && it.updateUserId == USER_ID
-        }) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 600L }
+        1 * orderRepository.insertHeader({ it.userId() == USER_ID }) >> 600L
     }
 
     def "useSeparateShipping=falseはbillingを配送先として使う"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-1", 1, 10.00)]
-        inventoryCustomMapper.decreaseInventory(_) >> 1
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-1", 1, 10.00))
+        inventoryRepository.decrease(_, _) >> 1
         def billing = address("BillFirst")
 
         when:
         service.placeOrder(new PlaceOrderCommand(billing, null, false))
 
         then:
-        1 * orderCustomMapper.insertOrderHeader({
-            it.shipToFirstName == "BillFirst" && it.billToFirstName == "BillFirst"
-        }) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 700L }
+        1 * orderRepository.insertHeader({
+            it.shipping().firstName() == "BillFirst" && it.billing().firstName() == "BillFirst"
+        }) >> 700L
     }
 
     def "useSeparateShipping=trueはshippingを配送先として使う"() {
         given:
-        cartCustomMapper.selectCartItems(CART_ID) >> [cartItem("EST-1", 1, 10.00)]
-        inventoryCustomMapper.decreaseInventory(_) >> 1
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-1", 1, 10.00))
+        inventoryRepository.decrease(_, _) >> 1
         def billing = address("BillFirst")
         def shipping = address("ShipFirst")
 
@@ -206,9 +205,9 @@ class OrderApplicationServiceSpec extends Specification {
         service.placeOrder(new PlaceOrderCommand(billing, shipping, true))
 
         then:
-        1 * orderCustomMapper.insertOrderHeader({
-            it.shipToFirstName == "ShipFirst" && it.billToFirstName == "BillFirst"
-        }) >> { OrderHeaderWriteCustomEntity h -> h.orderId = 800L }
+        1 * orderRepository.insertHeader({
+            it.shipping().firstName() == "ShipFirst" && it.billing().firstName() == "BillFirst"
+        }) >> 800L
     }
 
     def "未認証(CurrentUserProviderが空)はAccessDeniedExceptionになりカート読取も行わない"() {
@@ -217,13 +216,14 @@ class OrderApplicationServiceSpec extends Specification {
             requireCurrentUser() >> { throw new org.springframework.security.access.AccessDeniedException("Authentication required") }
         }
         def unauthenticatedService = new OrderApplicationService(
-                cartCustomMapper, orderCustomMapper, inventoryCustomMapper, unauthenticatedProvider, auditLogRecorder)
+                cartRepository, orderRepository, inventoryRepository, unauthenticatedProvider, auditLogRecorder)
 
         when:
         unauthenticatedService.placeOrder(new PlaceOrderCommand(address(), null, false))
 
         then:
         thrown(org.springframework.security.access.AccessDeniedException)
-        0 * cartCustomMapper.selectCartItems(_)
+        0 * cartRepository.ensureCart(_)
+        0 * cartRepository.findByCartId(_)
     }
 }

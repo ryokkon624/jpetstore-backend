@@ -80,4 +80,12 @@ class MyBatisCartRepositorySpec extends Specification {
         then:
         1 * cartCustomMapper.deleteCartItem(CART_ID, "EST-1")
     }
+
+    def "clearItemsはcartCustomMapper#deleteCartItemsを1回だけ呼ぶ(#30・注文確定成功後のカート全クリア)"() {
+        when:
+        repository.clearItems(CART_ID)
+
+        then:
+        1 * cartCustomMapper.deleteCartItems(CART_ID)
+    }
 }
