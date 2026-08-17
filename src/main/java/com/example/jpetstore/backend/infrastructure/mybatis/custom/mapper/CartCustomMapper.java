@@ -43,4 +43,7 @@ public interface CartCustomMapper {
 
   /** カート明細を削除する（数量0以下・明示削除の両方から呼ばれる。単一表+単一削除経路＝AC2・幽霊行=ID-17を踏襲しない）。 */
   void deleteCartItem(@Param("cartId") Long cartId, @Param("itemId") String itemId);
+
+  /** カート明細を全削除する（#8・注文確定成功後のカート全クリア）。 */
+  void deleteCartItems(@Param("cartId") Long cartId);
 }

@@ -6,6 +6,8 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AuditL
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AuditLogCustomMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -59,6 +61,21 @@ public class AuditLogRecorder {
 
   /** 状態変更（注文作成・account 編集等）を記録する。後続ドメイン Story がユースケースの呼び出し箇所で 呼ぶ想定（本 Story ではこの API を用意するところまで）。 */
   public void recordStateChange(
+      String action, String targetType, String targetId, String result, Object detail) {
+    AuthenticatedUser actor = currentUserProvider.currentUser().orElse(null);
+    insert(EVENT_STATE_CHANGE, actor, action, targetType, targetId, result, detail, null);
+  }
+
+  /**
+   * 状態変更の失敗（在庫不足・空カート等）を、呼び出し元の主トランザクションから独立した別トランザクションで 記録する（#8 AC6・失敗監査）。
+   *
+   * <p>{@link Propagation#REQUIRES_NEW} により、呼び出し元（例: {@code
+   * OrderApplicationService#placeOrder}）の主トランザクションが最終的にロールバックされても、この監査行は
+   * 別コミットとして残る。呼び出し元は本メソッドを持つ本クラス（別bean）を経由して呼ぶため、Spring AOP
+   * プロキシが正しく介在し（自己呼び出しではない）、{@code @Transactional} が効く。
+   */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void recordStateChangeIndependently(
       String action, String targetType, String targetId, String result, Object detail) {
     AuthenticatedUser actor = currentUserProvider.currentUser().orElse(null);
     insert(EVENT_STATE_CHANGE, actor, action, targetType, targetId, result, detail, null);

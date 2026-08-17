@@ -4,6 +4,8 @@ import com.example.jpetstore.backend.support.IntegrationTestBase
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.mock.web.MockHttpServletRequest
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import spock.lang.Tag
 
 /**
@@ -17,6 +19,9 @@ class AuditLogRecorderSpec extends IntegrationTestBase {
 
     @Autowired
     JdbcTemplate jdbcTemplate
+
+    @Autowired
+    PlatformTransactionManager transactionManager
 
     void setup() {
         jdbcTemplate.update("DELETE FROM t_audit_log")
@@ -77,5 +82,27 @@ class AuditLogRecorderSpec extends IntegrationTestBase {
         then:
         def row = jdbcTemplate.queryForMap("SELECT * FROM t_audit_log ORDER BY audit_id DESC LIMIT 1")
         row.detail == null
+    }
+
+    def "recordStateChangeIndependentlyは呼び出し元のトランザクションがロールバックしても記録が残る(REQUIRES_NEW・#8失敗監査)"() {
+        given: "外側のトランザクションが後でロールバックされる状況を再現する"
+        def outerTx = new TransactionTemplate(transactionManager)
+
+        when:
+        outerTx.execute { status ->
+            recorder.recordStateChangeIndependently(
+                    "ORDER_CREATE", null, null, "FAILURE", [reason: "INSUFFICIENT_STOCK", itemId: "EST-3"])
+            status.setRollbackOnly()
+            null
+        }
+
+        then: "REQUIRES_NEWの別トランザクションで既にコミット済みのため、外側のロールバックの影響を受けない"
+        def row = jdbcTemplate.queryForMap("SELECT * FROM t_audit_log ORDER BY audit_id DESC LIMIT 1")
+        row.event_type == "STATE_CHANGE"
+        row.action == "ORDER_CREATE"
+        row.target_type == null
+        row.target_id == null
+        row.result == "FAILURE"
+        row.detail.toString().contains("INSUFFICIENT_STOCK")
     }
 }
