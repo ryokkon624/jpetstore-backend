@@ -67,7 +67,10 @@ public class SecurityConfig {
                         // #18 AC1/AC4: login/logout はそれ自体が認証の入口/出口のため未認証で到達可能にする
                         // （CSRF は下記 csrf() 設定で別途必須。認証チェック自体は免除するだけ）。
                         "/api/auth/login",
-                        "/api/auth/logout")
+                        "/api/auth/logout",
+                        // #13 E8: ユーザー登録は独立パス。/api/account/** は anyRequest().authenticated() の
+                        // まま維持し、メソッド別permitAllの微妙さを回避する（CSRFは下記csrf()設定で別途必須）。
+                        "/api/register")
                     .permitAll()
                     // #1 AC4: カタログは読み取り専用（GETのみ）・全公開（未認証到達可）。GETスコープに限定する
                     // ことで、同一パスへの非GET（POST等）は authenticated() のまま素通りせず、Spring MVC の

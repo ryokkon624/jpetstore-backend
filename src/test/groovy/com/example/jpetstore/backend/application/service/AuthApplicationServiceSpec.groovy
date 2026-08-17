@@ -85,4 +85,19 @@ class AuthApplicationServiceSpec extends Specification {
         1 * cookieSupport.writeAccessTokenCookie(response, "access-token", Duration.ofMinutes(15))
         1 * cookieSupport.writeRefreshTokenCookie(response, "refresh-token", Duration.ofDays(7))
     }
+
+    def "issueTokensFor: 照合を経ずにaccess/refreshを新規発行してCookieへ書き込む(#13 E9・登録の自動ログインが再利用)"() {
+        given:
+        def user = new AuthenticatedUser(7L, "new_user", ["USER"])
+        jwtService.generateAccessToken(user) >> "new-access-token"
+        jwtService.generateRefreshToken(user) >> "new-refresh-token"
+
+        when:
+        service.issueTokensFor(user, response)
+
+        then:
+        0 * authenticationManager.authenticate(_)
+        1 * cookieSupport.writeAccessTokenCookie(response, "new-access-token", Duration.ofMinutes(15))
+        1 * cookieSupport.writeRefreshTokenCookie(response, "new-refresh-token", Duration.ofDays(7))
+    }
 }

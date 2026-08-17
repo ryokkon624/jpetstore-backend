@@ -2,7 +2,9 @@ package com.example.jpetstore.backend.presentation.rest.exception;
 
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException;
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException;
+import com.example.jpetstore.backend.domain.exception.RegistrationRateLimitExceededException;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
+import com.example.jpetstore.backend.domain.exception.UsernameAlreadyExistsException;
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -63,6 +65,23 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleInsufficientStock(
       InsufficientStockException e, HttpServletRequest request) {
     return build(HttpStatus.CONFLICT, "CONFLICT", e.getMessage(), request);
+  }
+
+  /**
+   * ユーザー登録時のusername重複（#13 E4）を409 Conflict＋明示メッセージとして正規化する。既存の {@link
+   * OptimisticLockConflictException}=409 と系を揃える（列挙対策はレート制限が担保する前提のため、メッセージを あえて明示的にする＝E4計画確定）。
+   */
+  @ExceptionHandler(UsernameAlreadyExistsException.class)
+  public ResponseEntity<ErrorResponse> handleUsernameAlreadyExists(
+      UsernameAlreadyExistsException e, HttpServletRequest request) {
+    return build(HttpStatus.CONFLICT, "CONFLICT", e.getMessage(), request);
+  }
+
+  /** ユーザー登録エンドポイントのレート制限超過（#13 AC4/AC-neg2・SBD-6）を429 Too Many Requestsとして正規化する。 */
+  @ExceptionHandler(RegistrationRateLimitExceededException.class)
+  public ResponseEntity<ErrorResponse> handleRegistrationRateLimitExceeded(
+      RegistrationRateLimitExceededException e, HttpServletRequest request) {
+    return build(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", e.getMessage(), request);
   }
 
   @ExceptionHandler(AccessDeniedException.class)

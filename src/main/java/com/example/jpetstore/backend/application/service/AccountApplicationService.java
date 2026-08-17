@@ -1,21 +1,31 @@
 package com.example.jpetstore.backend.application.service;
 
 import com.example.jpetstore.backend.domain.account.AccountContact;
+import com.example.jpetstore.backend.domain.account.AccountEditCommand;
+import com.example.jpetstore.backend.domain.account.AccountEditDetail;
 import com.example.jpetstore.backend.domain.account.AccountRepository;
+import com.example.jpetstore.backend.domain.account.AccountUpdate;
+import com.example.jpetstore.backend.domain.concurrency.AffectedRows;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * プリフィル用の自分自身の氏名/連絡先/住所を返すユースケース（#7・計画フェーズ確定①）。
+ * 自分自身のアカウント/プロフィールを扱うユースケース（#7 read-only・#14 編集）。
  *
- * <p>対象は常に呼び出し元（{@link CurrentUserProvider}）自身の {@code m_account} 行のみ。URL/リクエストにuserId等を取らないため
- * IDOR面はゼロ（{@code CartApplicationService} と同じ思想）。SELECT のみに厳格限定し、更新系メソッドは持たない（E4/F4.2 編集側・#8
- * 送信/在庫を先取りしない）。
+ * <p>対象は常に呼び出し元（{@link CurrentUserProvider}）自身の {@code m_account}/{@code m_profile} 行のみ。
+ * URL/リクエストにuserId等を取らないためIDOR面はゼロ（{@code CartApplicationService} と同じ思想。#14 AC-neg1・{@code
+ * OwnershipAuthorizationService}は不要＝本人行のみ触るため所有者照合が構造的に自明）。
  *
  * <p>#30: {@code AccountContactCustomMapper} 直呼びから {@link AccountRepository}（Domain層）経由へ retrofit
  * した（{@code backend-conventions} §9）。
+ *
+ * <p>#14: {@link #getAccountForEdit}/{@link #updateAccount} は編集プリフィル/version楽観ロック更新 （arch
+ * §4.2・コードベース初の実UPDATE）。{@link AccountUpdate#userId()} は{@link
+ * CurrentUserProvider}起点でサーバ側が解決した値のみを使う（クライアントの{@code username}等は
+ * 一切受け取らない・AC1）。userid/status/version/WHO列はサーバ権威のため{@link AccountEditCommand}に
+ * フィールド自体を持たない（AC-neg2・型で構造的に担保）。
  */
 @Service
 public class AccountApplicationService {
@@ -42,5 +52,70 @@ public class AccountApplicationService {
     return accountRepository
         .findContactByUserId(userId)
         .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+  }
+
+  /**
+   * 編集プリフィル用に現在の認証プリンシパル自身の全編集可フィールドとversionを返す（#14 AC3・E3）。
+   *
+   * @throws org.springframework.security.access.AccessDeniedException 未認証
+   * @throws ResourceNotFoundException 認証プリンシパルに対応する行が存在しない場合
+   */
+  @Transactional(readOnly = true)
+  public AccountEditDetail getAccountForEdit() {
+    Long userId = currentUserProvider.requireCurrentUser().userId();
+    return accountRepository
+        .findEditDetailByUserId(userId)
+        .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+  }
+
+  /**
+   * 現在の認証プリンシパル自身のアカウント/プロフィールを更新する（#14 AC1〜AC3）。
+   *
+   * <p>更新後の {@link AccountEditDetail} は再読取り（追加SELECT）せず、{@code command} が持つ入力値と{@code
+   * expectedVersion+1}から直接組み立てて返す（成功した時点で永続化された値は{@code
+   * command}の入力値そのものであるため。Sprint12/13の教訓＝識別子解決用と最終応答用の読取を同一の集約全体
+   * 読み込みで済ませない、をさらに進め「そもそも再読取りしない」設計とした）。
+   *
+   * @throws org.springframework.security.access.AccessDeniedException 未認証
+   * @throws com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException {@code
+   *     expectedVersion} が最新でない場合（affected rows==0・409）
+   */
+  @Transactional
+  public AccountEditDetail updateAccount(AccountEditCommand command) {
+    Long userId = currentUserProvider.requireCurrentUser().userId();
+    AccountUpdate update =
+        new AccountUpdate(
+            userId,
+            command.expectedVersion(),
+            command.firstName(),
+            command.lastName(),
+            command.email(),
+            command.phone(),
+            command.address1(),
+            command.address2(),
+            command.city(),
+            command.state(),
+            command.postalCode(),
+            command.country(),
+            command.languagePreference(),
+            command.favoriteCategoryId());
+
+    int affected = accountRepository.updateAccount(update);
+    AffectedRows.requireUpdated(affected);
+
+    return new AccountEditDetail(
+        command.firstName(),
+        command.lastName(),
+        command.email(),
+        command.phone(),
+        command.address1(),
+        command.address2(),
+        command.city(),
+        command.state(),
+        command.postalCode(),
+        command.country(),
+        command.languagePreference(),
+        command.favoriteCategoryId(),
+        command.expectedVersion() + 1);
   }
 }
