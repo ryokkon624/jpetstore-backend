@@ -36,7 +36,22 @@ public class MyBatisCartRepository implements CartRepository {
 
   @Override
   public Cart findByUserId(Long userId) {
-    Long cartId = ensureCartFor(userId);
+    Long cartId = ensureCart(userId);
+    return findByCartId(cartId);
+  }
+
+  @Override
+  public Long ensureCart(Long userId) {
+    CartHeaderCustomEntity header = new CartHeaderCustomEntity();
+    header.setUserId(userId);
+    header.setCreateUserId(userId);
+    header.setUpdateUserId(userId);
+    cartCustomMapper.ensureCart(header);
+    return header.getCartId();
+  }
+
+  @Override
+  public Cart findByCartId(Long cartId) {
     return CartConverter.toCart(cartId, cartCustomMapper.selectCartItems(cartId));
   }
 
@@ -61,15 +76,6 @@ public class MyBatisCartRepository implements CartRepository {
   @Override
   public void removeItem(Long cartId, String itemId) {
     cartCustomMapper.deleteCartItem(cartId, itemId);
-  }
-
-  private Long ensureCartFor(Long userId) {
-    CartHeaderCustomEntity header = new CartHeaderCustomEntity();
-    header.setUserId(userId);
-    header.setCreateUserId(userId);
-    header.setUpdateUserId(userId);
-    cartCustomMapper.ensureCart(header);
-    return header.getCartId();
   }
 
   private Long currentUserId() {

@@ -31,6 +31,16 @@ public final class Cart {
     return new Cart(cartId, items);
   }
 
+  /**
+   * {@code cartId} のみを持つ軽量な識別子ハンドル（#29 perf是正）。{@link #addItem}/{@link #updateItem}/{@link
+   * #mergeLine} は集約state（{@code items}）を使わず注入された {@link StockAvailability} とquantityのみで動く（D3）ため、
+   * これらのコマンドメソッド呼び出し専用に、明細をロードせず {@code cartId} だけで組み立てられる。表示用の完全な {@link Cart} が必要な場合は別途 {@code
+   * CartRepository#findByCartId} で取得すること（{@link #items}/{@link #subtotal} は空/ゼロを返す）。
+   */
+  public static Cart identity(Long cartId) {
+    return new Cart(cartId, List.of());
+  }
+
   public Long cartId() {
     return cartId;
   }

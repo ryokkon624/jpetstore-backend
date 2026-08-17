@@ -57,12 +57,11 @@ public class CartApplicationService {
     if (requestedQuantity <= 0) {
       throw new IllegalArgumentException("Requested quantity must be a positive integer");
     }
-    Long userId = currentUserId();
-    Cart cart = cartRepository.findByUserId(userId);
-    StockAvailability stock = requireStock(cart.cartId(), itemId);
-    CartItem line = cart.addItem(stock, requestedQuantity);
-    cartRepository.upsertItem(cart.cartId(), line);
-    return cartRepository.findByUserId(userId);
+    Long cartId = cartRepository.ensureCart(currentUserId());
+    StockAvailability stock = requireStock(cartId, itemId);
+    CartItem line = Cart.identity(cartId).addItem(stock, requestedQuantity);
+    cartRepository.upsertItem(cartId, line);
+    return cartRepository.findByCartId(cartId);
   }
 
   /**
@@ -74,25 +73,23 @@ public class CartApplicationService {
    */
   @Transactional
   public Cart updateItem(String itemId, int quantity) {
-    Long userId = currentUserId();
-    Cart cart = cartRepository.findByUserId(userId);
-    StockAvailability stock = requireStock(cart.cartId(), itemId);
-    Optional<CartItem> line = cart.updateItem(stock, quantity);
+    Long cartId = cartRepository.ensureCart(currentUserId());
+    StockAvailability stock = requireStock(cartId, itemId);
+    Optional<CartItem> line = Cart.identity(cartId).updateItem(stock, quantity);
     if (line.isPresent()) {
-      cartRepository.upsertItem(cart.cartId(), line.get());
+      cartRepository.upsertItem(cartId, line.get());
     } else {
-      cartRepository.removeItem(cart.cartId(), itemId);
+      cartRepository.removeItem(cartId, itemId);
     }
-    return cartRepository.findByUserId(userId);
+    return cartRepository.findByCartId(cartId);
   }
 
   /** カートからの削除（AC1・AC2）。存在しない行への削除も冪等に成功する（単一表+単一削除経路）。 */
   @Transactional
   public Cart removeItem(String itemId) {
-    Long userId = currentUserId();
-    Cart cart = cartRepository.findByUserId(userId);
-    cartRepository.removeItem(cart.cartId(), itemId);
-    return cartRepository.findByUserId(userId);
+    Long cartId = cartRepository.ensureCart(currentUserId());
+    cartRepository.removeItem(cartId, itemId);
+    return cartRepository.findByCartId(cartId);
   }
 
   /**
@@ -107,26 +104,25 @@ public class CartApplicationService {
    */
   @Transactional
   public Cart merge(List<CartLine> clientLines) {
-    Long userId = currentUserId();
-    Cart cart = cartRepository.findByUserId(userId);
+    Long cartId = cartRepository.ensureCart(currentUserId());
+    Cart cart = Cart.identity(cartId);
 
     for (CartLine clientLine : clientLines) {
       if (clientLine.quantity() <= 0) {
         throw new IllegalArgumentException("Merge line quantity must be a positive integer");
       }
-      Optional<StockAvailability> stock =
-          cartRepository.findStock(cart.cartId(), clientLine.itemId());
+      Optional<StockAvailability> stock = cartRepository.findStock(cartId, clientLine.itemId());
       if (stock.isEmpty()) {
         continue;
       }
       Optional<CartItem> line = cart.mergeLine(stock.get(), clientLine.quantity());
       if (line.isPresent()) {
-        cartRepository.upsertItem(cart.cartId(), line.get());
+        cartRepository.upsertItem(cartId, line.get());
       } else {
-        cartRepository.removeItem(cart.cartId(), clientLine.itemId());
+        cartRepository.removeItem(cartId, clientLine.itemId());
       }
     }
-    return cartRepository.findByUserId(userId);
+    return cartRepository.findByCartId(cartId);
   }
 
   private StockAvailability requireStock(Long cartId, String itemId) {

@@ -13,11 +13,27 @@ import java.util.Optional;
 public interface CartRepository {
 
   /**
-   * 呼び出し元ユーザのカートを取得する（無ければ確保する。ensure＋読取射影・空カートも確保）。
+   * 呼び出し元ユーザのカートを取得する（無ければ確保する。{@link #ensureCart}＋{@link #findByCartId} の合成＝2クエリ。読取専用ユースケース（{@code
+   * viewCart}）向け）。
    *
    * @param userId カートの持ち主（常に呼び出し元プリンシパル。IDOR面ゼロ）
    */
   Cart findByUserId(Long userId);
+
+  /**
+   * 呼び出し元ユーザの {@code t_cart} を取得し、無ければ作成する（upsert-get-id）。cartIdのみを返し、明細（items）はロードしない （#29
+   * perf是正）。書込系ユースケース（add/update/remove/merge）の起点として使う。{@link Cart} の集約が必要な場合は {@code
+   * Cart.identity(cartId)}（items状態を使わないコマンドメソッド専用の軽量ハンドル）と組み合わせる。
+   *
+   * @param userId カートの持ち主（常に呼び出し元プリンシパル。IDOR面ゼロ）
+   */
+  Long ensureCart(Long userId);
+
+  /**
+   * 指定 {@code cartId} のカート内容を読み取る（select-only。ensureは行わない）。呼び出し元は事前に {@link #ensureCart} 等で当該
+   * {@code cartId} の存在を保証しておくこと（#29 perf是正・書込系ユースケースの最終応答取得に使う）。
+   */
+  Cart findByCartId(Long cartId);
 
   /**
    * 追加/更新/マージの不変条件判定に必要な在庫コンテキストを取得する（{@code m_item} 起点）。
