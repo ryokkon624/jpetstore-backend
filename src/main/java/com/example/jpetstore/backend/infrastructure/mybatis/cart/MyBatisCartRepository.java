@@ -78,6 +78,11 @@ public class MyBatisCartRepository implements CartRepository {
     cartCustomMapper.deleteCartItem(cartId, itemId);
   }
 
+  @Override
+  public void clearItems(Long cartId) {
+    cartCustomMapper.deleteCartItems(cartId);
+  }
+
   private Long currentUserId() {
     return currentUserProvider.requireCurrentUser().userId();
   }

@@ -1,10 +1,9 @@
 package com.example.jpetstore.backend.application.service;
 
 import com.example.jpetstore.backend.domain.account.AccountContact;
+import com.example.jpetstore.backend.domain.account.AccountRepository;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountContactCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,17 +13,19 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>対象は常に呼び出し元（{@link CurrentUserProvider}）自身の {@code m_account} 行のみ。URL/リクエストにuserId等を取らないため
  * IDOR面はゼロ（{@code CartApplicationService} と同じ思想）。SELECT のみに厳格限定し、更新系メソッドは持たない（E4/F4.2 編集側・#8
  * 送信/在庫を先取りしない）。
+ *
+ * <p>#30: {@code AccountContactCustomMapper} 直呼びから {@link AccountRepository}（Domain層）経由へ retrofit
+ * した（{@code backend-conventions} §9）。
  */
 @Service
 public class AccountApplicationService {
 
-  private final AccountContactCustomMapper accountContactCustomMapper;
+  private final AccountRepository accountRepository;
   private final CurrentUserProvider currentUserProvider;
 
   public AccountApplicationService(
-      AccountContactCustomMapper accountContactCustomMapper,
-      CurrentUserProvider currentUserProvider) {
-    this.accountContactCustomMapper = accountContactCustomMapper;
+      AccountRepository accountRepository, CurrentUserProvider currentUserProvider) {
+    this.accountRepository = accountRepository;
     this.currentUserProvider = currentUserProvider;
   }
 
@@ -38,24 +39,8 @@ public class AccountApplicationService {
   @Transactional(readOnly = true)
   public AccountContact getMyContact() {
     Long userId = currentUserProvider.requireCurrentUser().userId();
-    AccountContactCustomEntity entity = accountContactCustomMapper.findByUserId(userId);
-    if (entity == null) {
-      throw new ResourceNotFoundException("Account not found");
-    }
-    return toAccountContact(entity);
-  }
-
-  private AccountContact toAccountContact(AccountContactCustomEntity entity) {
-    return new AccountContact(
-        entity.getFirstName(),
-        entity.getLastName(),
-        entity.getEmail(),
-        entity.getPhone(),
-        entity.getAddress1(),
-        entity.getAddress2(),
-        entity.getCity(),
-        entity.getState(),
-        entity.getPostalCode(),
-        entity.getCountry());
+    return accountRepository
+        .findContactByUserId(userId)
+        .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
   }
 }

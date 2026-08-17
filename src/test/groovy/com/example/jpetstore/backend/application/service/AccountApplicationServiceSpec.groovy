@@ -1,68 +1,58 @@
 package com.example.jpetstore.backend.application.service
 
+import com.example.jpetstore.backend.domain.account.AccountContact
+import com.example.jpetstore.backend.domain.account.AccountRepository
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountContactCustomEntity
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper
 import org.springframework.security.access.AccessDeniedException
 import spock.lang.Specification
 
 /**
- * #7: プリフィル用の自分自身の氏名/連絡先/住所を返すユースケース（read-only・計画フェーズ確定①）を検証する。
+ * #7/#30: プリフィル用の自分自身の氏名/連絡先/住所を返すユースケース（read-only・計画フェーズ確定①）を検証する。
  *
  * <p>{@code CurrentUserProvider.requireCurrentUser()} でprincipal→userIdを解決する（クライアント入力のuserIdは
- * 一切受け取らない＝IDOR面ゼロ）。
+ * 一切受け取らない＝IDOR面ゼロ）。#30でAccountContactCustomMapper直呼びからAccountRepository（Domain層）経由へ
+ * retrofitした（backend-conventions §9・DB非依存Repositoryモック）。
  */
 class AccountApplicationServiceSpec extends Specification {
 
     private static final Long USER_ID = 42L
 
-    AccountContactCustomMapper accountContactCustomMapper = Mock()
+    AccountRepository accountRepository = Mock()
     CurrentUserProvider currentUserProvider = Stub() {
         requireCurrentUser() >> new AuthenticatedUser(USER_ID, "account_user", ["USER"])
     }
 
-    AccountApplicationService service = new AccountApplicationService(accountContactCustomMapper, currentUserProvider)
+    AccountApplicationService service = new AccountApplicationService(accountRepository, currentUserProvider)
 
-    private static AccountContactCustomEntity contactEntity() {
-        def e = new AccountContactCustomEntity()
-        e.firstName = "Taro"
-        e.lastName = "Yamada"
-        e.email = "taro@example.com"
-        e.phone = "555-0100"
-        e.address1 = "1 Test St"
-        e.address2 = "Suite 2"
-        e.city = "Testville"
-        e.state = "CA"
-        e.postalCode = "90000"
-        e.country = "USA"
-        e
+    private static AccountContact contact() {
+        new AccountContact(
+                "Taro", "Yamada", "taro@example.com", "555-0100",
+                "1 Test St", "Suite 2", "Testville", "CA", "90000", "USA")
     }
 
-    def "getMyContact: CurrentUserProviderのuserIdでmapperを呼びAccountContactへ変換する"() {
-        given:
-        accountContactCustomMapper.findByUserId(USER_ID) >> contactEntity()
-
+    def "getMyContact: CurrentUserProviderのuserIdでaccountRepositoryを呼びAccountContactを返す"() {
         when:
-        def contact = service.getMyContact()
+        def result = service.getMyContact()
 
         then:
-        contact.firstName() == "Taro"
-        contact.lastName() == "Yamada"
-        contact.email() == "taro@example.com"
-        contact.phone() == "555-0100"
-        contact.address1() == "1 Test St"
-        contact.address2() == "Suite 2"
-        contact.city() == "Testville"
-        contact.state() == "CA"
-        contact.postalCode() == "90000"
-        contact.country() == "USA"
+        1 * accountRepository.findContactByUserId(USER_ID) >> Optional.of(contact())
+        result.firstName() == "Taro"
+        result.lastName() == "Yamada"
+        result.email() == "taro@example.com"
+        result.phone() == "555-0100"
+        result.address1() == "1 Test St"
+        result.address2() == "Suite 2"
+        result.city() == "Testville"
+        result.state() == "CA"
+        result.postalCode() == "90000"
+        result.country() == "USA"
     }
 
-    def "getMyContact: mapperがnull(該当行なし)を返した場合はResourceNotFoundExceptionになる"() {
+    def "getMyContact: repositoryがOptional.empty()(該当行なし)を返した場合はResourceNotFoundExceptionになる"() {
         given:
-        accountContactCustomMapper.findByUserId(USER_ID) >> null
+        accountRepository.findContactByUserId(USER_ID) >> Optional.empty()
 
         when:
         service.getMyContact()
@@ -76,13 +66,13 @@ class AccountApplicationServiceSpec extends Specification {
         def unauthenticatedProvider = Stub(CurrentUserProvider) {
             requireCurrentUser() >> { throw new AccessDeniedException("Authentication required") }
         }
-        def unauthenticatedService = new AccountApplicationService(accountContactCustomMapper, unauthenticatedProvider)
+        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider)
 
         when:
         unauthenticatedService.getMyContact()
 
         then:
         thrown(AccessDeniedException)
-        0 * accountContactCustomMapper.findByUserId(_)
+        0 * accountRepository.findContactByUserId(_)
     }
 }

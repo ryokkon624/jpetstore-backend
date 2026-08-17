@@ -48,4 +48,7 @@ public interface CartRepository {
 
   /** カート明細1行を削除する（冪等。存在しない行への削除も成功する）。 */
   void removeItem(Long cartId, String itemId);
+
+  /** カート明細を全削除する（#8/#30・注文確定成功後のカート全クリア）。 */
+  void clearItems(Long cartId);
 }

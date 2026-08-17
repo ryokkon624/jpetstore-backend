@@ -1,20 +1,16 @@
 package com.example.jpetstore.backend.application.service;
 
+import com.example.jpetstore.backend.domain.catalog.CatalogRepository;
 import com.example.jpetstore.backend.domain.catalog.Category;
 import com.example.jpetstore.backend.domain.catalog.ItemDetail;
+import com.example.jpetstore.backend.domain.catalog.ItemStock;
 import com.example.jpetstore.backend.domain.catalog.ItemSummary;
 import com.example.jpetstore.backend.domain.catalog.OrderabilityResult;
 import com.example.jpetstore.backend.domain.catalog.Product;
 import com.example.jpetstore.backend.domain.catalog.ProductSearchTerms;
-import com.example.jpetstore.backend.domain.catalog.StockStatusCalculator;
 import com.example.jpetstore.backend.domain.common.Page;
 import com.example.jpetstore.backend.domain.common.PageRequest;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CategoryCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemDetailCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemSummaryCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProductCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CatalogCustomMapper;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -23,71 +19,63 @@ import org.springframework.stereotype.Service;
  *
  * <p>読み取り専用。category一覧は非ページング（[L2]で5件固定）、product/item一覧はサーバサイドページング（論点3・1-index・既定size=12・cap=100）。
  *
- * <p>AC3（在庫数非露出）: {@link ItemSummaryCustomEntity#getQuantity()}/{@link
- * ItemDetailCustomEntity#getQuantity()} はこのクラス内でのみ {@link StockStatusCalculator#of} により {@code
- * StockStatus} に変換し、qty自体をこのクラスの戻り値（Domainモデル）に含めない。
+ * <p>AC3（在庫数非露出）: 生の在庫数量（qty）は {@link CatalogRepository} 実装内（{@code StockStatusCalculator#of}）で
+ * {@code StockStatus} に変換済みの値のみを受け取り、qty自体をこのクラスの戻り値（Domainモデル）に含めない。{@link #checkOrderable}
+ * のみ、閾値判定に必要なraw値を {@link ItemStock} 経由で受け取るが、応答（{@link OrderabilityResult}）には含めない。
+ *
+ * <p>#30: {@code CatalogCustomMapper} 直呼びから {@link CatalogRepository}（Domain層）経由へ retrofit
+ * した（{@code backend-conventions} §9）。
  */
 @Service
 public class CatalogApplicationService {
 
-  private final CatalogCustomMapper catalogCustomMapper;
+  private final CatalogRepository catalogRepository;
 
-  public CatalogApplicationService(CatalogCustomMapper catalogCustomMapper) {
-    this.catalogCustomMapper = catalogCustomMapper;
+  public CatalogApplicationService(CatalogRepository catalogRepository) {
+    this.catalogRepository = catalogRepository;
   }
 
   /** カテゴリ一覧（[L2]で5件固定・非ページング）。 */
   public List<Category> listCategories() {
-    return catalogCustomMapper.selectAllCategories().stream().map(this::toCategory).toList();
+    return catalogRepository.listCategories();
   }
 
   /** カテゴリ詳細。存在しなければ {@link ResourceNotFoundException}（→404）。 */
   public Category getCategory(String categoryId) {
-    CategoryCustomEntity entity = catalogCustomMapper.selectCategoryById(categoryId);
-    if (entity == null) {
-      throw new ResourceNotFoundException("Category not found: " + categoryId);
-    }
-    return toCategory(entity);
+    return catalogRepository
+        .findCategoryById(categoryId)
+        .orElseThrow(() -> new ResourceNotFoundException("Category not found: " + categoryId));
   }
 
   /** カテゴリ内の商品一覧（ページング）。カテゴリ自体が存在しなければ {@link ResourceNotFoundException}（→404）。 */
   public Page<Product> listProductsByCategory(String categoryId, Integer page, Integer size) {
-    if (catalogCustomMapper.selectCategoryById(categoryId) == null) {
+    if (catalogRepository.findCategoryById(categoryId).isEmpty()) {
       throw new ResourceNotFoundException("Category not found: " + categoryId);
     }
     PageRequest pageRequest = PageRequest.of(page, size);
     List<Product> content =
-        catalogCustomMapper
-            .selectProductsByCategoryId(categoryId, pageRequest.offset(), pageRequest.size())
-            .stream()
-            .map(this::toProduct)
-            .toList();
-    long totalElements = catalogCustomMapper.countProductsByCategoryId(categoryId);
+        catalogRepository.listProductsByCategoryId(
+            categoryId, pageRequest.offset(), pageRequest.size());
+    long totalElements = catalogRepository.countProductsByCategoryId(categoryId);
     return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
   }
 
   /** 商品詳細。存在しなければ {@link ResourceNotFoundException}（→404）。 */
   public Product getProduct(String productId) {
-    ProductCustomEntity entity = catalogCustomMapper.selectProductById(productId);
-    if (entity == null) {
-      throw new ResourceNotFoundException("Product not found: " + productId);
-    }
-    return toProduct(entity);
+    return catalogRepository
+        .findProductById(productId)
+        .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + productId));
   }
 
   /** 商品内の在庫アイテム一覧（ページング）。商品自体が存在しなければ {@link ResourceNotFoundException}（→404）。 */
   public Page<ItemSummary> listItemsByProduct(String productId, Integer page, Integer size) {
-    if (catalogCustomMapper.selectProductById(productId) == null) {
+    if (catalogRepository.findProductById(productId).isEmpty()) {
       throw new ResourceNotFoundException("Product not found: " + productId);
     }
     PageRequest pageRequest = PageRequest.of(page, size);
     List<ItemSummary> content =
-        catalogCustomMapper
-            .selectItemsByProductId(productId, pageRequest.offset(), pageRequest.size())
-            .stream()
-            .map(this::toItemSummary)
-            .toList();
-    long totalElements = catalogCustomMapper.countItemsByProductId(productId);
+        catalogRepository.listItemsByProductId(productId, pageRequest.offset(), pageRequest.size());
+    long totalElements = catalogRepository.countItemsByProductId(productId);
     return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
   }
 
@@ -106,31 +94,18 @@ public class CatalogApplicationService {
     }
     String normalizedCategoryId = (categoryId == null || categoryId.isBlank()) ? null : categoryId;
     List<Product> content =
-        catalogCustomMapper
-            .searchProducts(
-                terms.patterns(), normalizedCategoryId, pageRequest.offset(), pageRequest.size())
-            .stream()
-            .map(this::toProduct)
-            .toList();
+        catalogRepository.searchProducts(
+            terms.patterns(), normalizedCategoryId, pageRequest.offset(), pageRequest.size());
     long totalElements =
-        catalogCustomMapper.countSearchProducts(terms.patterns(), normalizedCategoryId);
+        catalogRepository.countSearchProducts(terms.patterns(), normalizedCategoryId);
     return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
   }
 
   /** アイテム詳細（在庫status・qty非露出）。存在しなければ {@link ResourceNotFoundException}（→404）。 */
   public ItemDetail getItem(String itemId) {
-    ItemDetailCustomEntity entity = catalogCustomMapper.selectItemById(itemId);
-    if (entity == null) {
-      throw new ResourceNotFoundException("Item not found: " + itemId);
-    }
-    return new ItemDetail(
-        entity.getItemId(),
-        entity.getProductId(),
-        entity.getProductName(),
-        entity.getProductDescription(),
-        entity.getAttribute1(),
-        entity.getListPrice(),
-        StockStatusCalculator.of(entity.getQuantity()));
+    return catalogRepository
+        .findItemDetailById(itemId)
+        .orElseThrow(() -> new ResourceNotFoundException("Item not found: " + itemId));
   }
 
   /**
@@ -139,37 +114,19 @@ public class CatalogApplicationService {
    * @throws ResourceNotFoundException 存在しない itemId（AC4/SBD-10）
    */
   public OrderabilityResult checkOrderable(String itemId, int quantity) {
-    ItemDetailCustomEntity entity = catalogCustomMapper.selectItemById(itemId);
-    if (entity == null) {
-      throw new ResourceNotFoundException("Item not found: " + itemId);
-    }
+    ItemStock stock =
+        catalogRepository
+            .findItemStockById(itemId)
+            .orElseThrow(() -> new ResourceNotFoundException("Item not found: " + itemId));
     if (quantity <= 0) {
       return OrderabilityResult.notOrderable(OrderabilityResult.REASON_INVALID_QUANTITY);
     }
-    if (entity.getQuantity() <= 0) {
+    if (stock.stockQuantity() <= 0) {
       return OrderabilityResult.notOrderable(OrderabilityResult.REASON_OUT_OF_STOCK);
     }
-    if (quantity > entity.getQuantity()) {
+    if (quantity > stock.stockQuantity()) {
       return OrderabilityResult.notOrderable(OrderabilityResult.REASON_EXCEEDS_STOCK);
     }
     return OrderabilityResult.ok();
-  }
-
-  private Category toCategory(CategoryCustomEntity entity) {
-    return new Category(entity.getCategoryId(), entity.getName(), entity.getDescription());
-  }
-
-  private Product toProduct(ProductCustomEntity entity) {
-    return new Product(
-        entity.getProductId(), entity.getCategoryId(), entity.getName(), entity.getDescription());
-  }
-
-  private ItemSummary toItemSummary(ItemSummaryCustomEntity entity) {
-    return new ItemSummary(
-        entity.getItemId(),
-        entity.getProductId(),
-        entity.getAttribute1(),
-        entity.getListPrice(),
-        StockStatusCalculator.of(entity.getQuantity()));
   }
 }

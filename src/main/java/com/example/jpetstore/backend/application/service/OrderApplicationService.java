@@ -1,22 +1,19 @@
 package com.example.jpetstore.backend.application.service;
 
+import com.example.jpetstore.backend.domain.cart.CartItem;
+import com.example.jpetstore.backend.domain.cart.CartRepository;
 import com.example.jpetstore.backend.domain.concurrency.AffectedRows;
 import com.example.jpetstore.backend.domain.enums.OrderStatus;
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException;
-import com.example.jpetstore.backend.domain.order.OrderAddress;
+import com.example.jpetstore.backend.domain.inventory.InventoryRepository;
+import com.example.jpetstore.backend.domain.order.NewOrder;
 import com.example.jpetstore.backend.domain.order.OrderConfirmation;
+import com.example.jpetstore.backend.domain.order.OrderLine;
+import com.example.jpetstore.backend.domain.order.OrderRepository;
 import com.example.jpetstore.backend.domain.order.PlaceOrderCommand;
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartHeaderCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.InventoryDecreaseCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderHeaderWriteCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderLineWriteCustomEntity;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCustomMapper;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.InventoryCustomMapper;
-import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.OrderCustomMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -28,13 +25,18 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 注文確定のユースケース（#8 AC1〜AC6・[L2]・AC-neg1〜3）。
  *
- * <p>数量はサーバ側DBカート（{@link CartCustomMapper#selectCartItems}）から読み、価格は確定時点の {@code m_item.list_price}
+ * <p>数量はサーバ側DBカート（{@link CartRepository#findByCartId}）から読み、価格は確定時点の {@code m_item.list_price}
  * でサーバ再計算する（SBD-2）。username はリクエストではなく {@link CurrentUserProvider} （認証プリンシパル）から導出する（AC-neg3）。
  *
  * <p>在庫はガード付きアトミック減算（architecture-conventions §4.1）で {@code item_id} 昇順に固定順で引き当て、
- * 1品でも不足すれば全体をロールバックする（{@code @Transactional}・all-or-nothing）。{@code
- * CartCustomMapper#selectCartItems} は既に {@code ORDER BY ci.item_id} で返すため、そのままの順序でループすれば
- * 昇順固定順減算になる（デッドロック回避）。
+ * 1品でも不足すれば全体をロールバックする（{@code @Transactional}・all-or-nothing）。{@code CartRepository#findByCartId}
+ * は既に {@code ORDER BY ci.item_id} で返すため、そのままの順序でループすれば 昇順固定順減算になる（デッドロック回避）。
+ *
+ * <p>#30（O1=案A）: rich な Order 集約は作らず、並行オーケストレーション（{@code @Transactional}・item_id昇順固定順ループ・
+ * ガード減算＋{@code AffectedRows.requireUpdated}・カート全クリア・成功/失敗監査）は本Serviceに残す。{@link
+ * CartRepository}/{@link OrderRepository}/{@link InventoryRepository}（Domain層）経由へ retrofit し、
+ * {@code CartCustomMapper}/{@code OrderCustomMapper}/{@code InventoryCustomMapper} 直呼びを解消した（{@code
+ * backend-conventions} §9）。
  *
  * <p>{@code application.service} 配下に置くことで {@code ProgramContextAspect} が {@code
  * OrderApplicationService#placeOrder} を機能識別子として WHO カラム（{@code create_program}/{@code
@@ -48,21 +50,21 @@ public class OrderApplicationService {
   private static final String RESULT_SUCCESS = "SUCCESS";
   private static final String RESULT_FAILURE = "FAILURE";
 
-  private final CartCustomMapper cartCustomMapper;
-  private final OrderCustomMapper orderCustomMapper;
-  private final InventoryCustomMapper inventoryCustomMapper;
+  private final CartRepository cartRepository;
+  private final OrderRepository orderRepository;
+  private final InventoryRepository inventoryRepository;
   private final CurrentUserProvider currentUserProvider;
   private final AuditLogRecorder auditLogRecorder;
 
   public OrderApplicationService(
-      CartCustomMapper cartCustomMapper,
-      OrderCustomMapper orderCustomMapper,
-      InventoryCustomMapper inventoryCustomMapper,
+      CartRepository cartRepository,
+      OrderRepository orderRepository,
+      InventoryRepository inventoryRepository,
       CurrentUserProvider currentUserProvider,
       AuditLogRecorder auditLogRecorder) {
-    this.cartCustomMapper = cartCustomMapper;
-    this.orderCustomMapper = orderCustomMapper;
-    this.inventoryCustomMapper = inventoryCustomMapper;
+    this.cartRepository = cartRepository;
+    this.orderRepository = orderRepository;
+    this.inventoryRepository = inventoryRepository;
     this.currentUserProvider = currentUserProvider;
     this.auditLogRecorder = auditLogRecorder;
   }
@@ -80,8 +82,8 @@ public class OrderApplicationService {
   public OrderConfirmation placeOrder(PlaceOrderCommand command) {
     AuthenticatedUser user = currentUserProvider.requireCurrentUser();
     Long userId = user.userId();
-    Long cartId = ensureCartFor(userId);
-    List<CartItemCustomEntity> cartItems = cartCustomMapper.selectCartItems(cartId);
+    Long cartId = cartRepository.ensureCart(userId);
+    List<CartItem> cartItems = cartRepository.findByCartId(cartId).items();
 
     try {
       if (cartItems.isEmpty()) {
@@ -89,9 +91,17 @@ public class OrderApplicationService {
       }
 
       BigDecimal totalPrice = calculateTotal(cartItems);
-      Long orderId = insertOrderHeader(command, userId, totalPrice);
-      insertOrderLinesWithGuardedDecrement(orderId, cartItems, userId);
-      cartCustomMapper.deleteCartItems(cartId);
+      NewOrder newOrder =
+          new NewOrder(
+              userId,
+              command.billing(),
+              command.effectiveShipping(),
+              totalPrice,
+              OrderStatus.NEW,
+              LocalDate.now());
+      Long orderId = orderRepository.insertHeader(newOrder);
+      insertOrderLinesWithGuardedDecrement(orderId, cartItems);
+      cartRepository.clearItems(cartId);
 
       auditLogRecorder.recordStateChange(
           ACTION_ORDER_CREATE,
@@ -108,65 +118,21 @@ public class OrderApplicationService {
     }
   }
 
-  private BigDecimal calculateTotal(List<CartItemCustomEntity> cartItems) {
+  private BigDecimal calculateTotal(List<CartItem> cartItems) {
     return cartItems.stream()
-        .map(item -> item.getListPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+        .map(item -> item.listPrice().multiply(BigDecimal.valueOf(item.quantity())))
         .reduce(BigDecimal.ZERO, BigDecimal::add);
   }
 
-  private Long insertOrderHeader(PlaceOrderCommand command, Long userId, BigDecimal totalPrice) {
-    OrderAddress billing = command.billing();
-    OrderAddress shipping = command.effectiveShipping();
-
-    OrderHeaderWriteCustomEntity header = new OrderHeaderWriteCustomEntity();
-    header.setUserId(userId);
-    header.setOrderDate(LocalDate.now());
-    header.setShipAddress1(shipping.address1());
-    header.setShipAddress2(shipping.address2());
-    header.setShipCity(shipping.city());
-    header.setShipState(shipping.state());
-    header.setShipPostalCode(shipping.postalCode());
-    header.setShipCountry(shipping.country());
-    header.setBillAddress1(billing.address1());
-    header.setBillAddress2(billing.address2());
-    header.setBillCity(billing.city());
-    header.setBillState(billing.state());
-    header.setBillPostalCode(billing.postalCode());
-    header.setBillCountry(billing.country());
-    header.setTotalPrice(totalPrice);
-    header.setBillToFirstName(billing.firstName());
-    header.setBillToLastName(billing.lastName());
-    header.setShipToFirstName(shipping.firstName());
-    header.setShipToLastName(shipping.lastName());
-    header.setStatusCode(OrderStatus.NEW.getCode());
-    header.setCreateUserId(userId);
-    header.setUpdateUserId(userId);
-
-    orderCustomMapper.insertOrderHeader(header);
-    return header.getOrderId();
-  }
-
-  /** item_id昇順（{@code selectCartItems} の順序）でガード減算→明細INSERTを行う（arch §4.1・固定順でデッドロック回避）。 */
-  private void insertOrderLinesWithGuardedDecrement(
-      Long orderId, List<CartItemCustomEntity> cartItems, Long userId) {
+  /** item_id昇順（{@code findByCartId} の順序）でガード減算→明細INSERTを行う（arch §4.1・固定順でデッドロック回避）。 */
+  private void insertOrderLinesWithGuardedDecrement(Long orderId, List<CartItem> cartItems) {
     int lineNum = 1;
-    for (CartItemCustomEntity item : cartItems) {
-      InventoryDecreaseCustomEntity decrease = new InventoryDecreaseCustomEntity();
-      decrease.setItemId(item.getItemId());
-      decrease.setQuantity(item.getQuantity());
-      decrease.setUpdateUserId(userId);
-      int rows = inventoryCustomMapper.decreaseInventory(decrease);
-      AffectedRows.requireUpdated(rows, () -> new InsufficientStockException(item.getItemId()));
+    for (CartItem item : cartItems) {
+      int rows = inventoryRepository.decrease(item.itemId(), item.quantity());
+      AffectedRows.requireUpdated(rows, () -> new InsufficientStockException(item.itemId()));
 
-      OrderLineWriteCustomEntity line = new OrderLineWriteCustomEntity();
-      line.setOrderId(orderId);
-      line.setLineNum(lineNum++);
-      line.setItemId(item.getItemId());
-      line.setQuantity(item.getQuantity());
-      line.setUnitPrice(item.getListPrice());
-      line.setCreateUserId(userId);
-      line.setUpdateUserId(userId);
-      orderCustomMapper.insertOrderLine(line);
+      OrderLine line = new OrderLine(item.itemId(), lineNum++, item.quantity(), item.listPrice());
+      orderRepository.insertLine(orderId, line);
     }
   }
 
@@ -175,14 +141,5 @@ public class OrderApplicationService {
     detail.put("reason", e.itemId() == null ? "EMPTY_CART" : "INSUFFICIENT_STOCK");
     detail.put("itemId", e.itemId());
     return detail;
-  }
-
-  private Long ensureCartFor(Long userId) {
-    CartHeaderCustomEntity header = new CartHeaderCustomEntity();
-    header.setUserId(userId);
-    header.setCreateUserId(userId);
-    header.setUpdateUserId(userId);
-    cartCustomMapper.ensureCart(header);
-    return header.getCartId();
   }
 }
