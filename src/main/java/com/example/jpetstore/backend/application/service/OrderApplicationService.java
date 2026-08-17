@@ -2,28 +2,36 @@ package com.example.jpetstore.backend.application.service;
 
 import com.example.jpetstore.backend.domain.cart.CartItem;
 import com.example.jpetstore.backend.domain.cart.CartRepository;
+import com.example.jpetstore.backend.domain.common.Page;
+import com.example.jpetstore.backend.domain.common.PageRequest;
 import com.example.jpetstore.backend.domain.concurrency.AffectedRows;
 import com.example.jpetstore.backend.domain.enums.OrderStatus;
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException;
 import com.example.jpetstore.backend.domain.inventory.InventoryRepository;
 import com.example.jpetstore.backend.domain.order.NewOrder;
 import com.example.jpetstore.backend.domain.order.OrderConfirmation;
+import com.example.jpetstore.backend.domain.order.OrderDetail;
+import com.example.jpetstore.backend.domain.order.OrderDetailLine;
+import com.example.jpetstore.backend.domain.order.OrderHeader;
 import com.example.jpetstore.backend.domain.order.OrderLine;
 import com.example.jpetstore.backend.domain.order.OrderRepository;
+import com.example.jpetstore.backend.domain.order.OrderSummary;
 import com.example.jpetstore.backend.domain.order.PlaceOrderCommand;
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
+import com.example.jpetstore.backend.domain.security.OwnershipAuthorizationService;
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 注文確定のユースケース（#8 AC1〜AC6・[L2]・AC-neg1〜3）。
+ * 注文確定・注文照会のユースケース（#8 AC1〜AC6・[L2]・AC-neg1〜3／#9/#10）。
  *
  * <p>数量はサーバ側DBカート（{@link CartRepository#findByCartId}）から読み、価格は確定時点の {@code m_item.list_price}
  * でサーバ再計算する（SBD-2）。username はリクエストではなく {@link CurrentUserProvider} （認証プリンシパル）から導出する（AC-neg3）。
@@ -37,6 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
  * CartRepository}/{@link OrderRepository}/{@link InventoryRepository}（Domain層）経由へ retrofit し、
  * {@code CartCustomMapper}/{@code OrderCustomMapper}/{@code InventoryCustomMapper} 直呼びを解消した（{@code
  * backend-conventions} §9）。
+ *
+ * <p>#9/#10（Sprint14）: {@link #listOrders} は認証プリンシパル本人スコープの注文履歴一覧、{@link #getOrder}
+ * は所有者限定の注文詳細を返す。{@link OwnershipAuthorizationService}（#21）の初の実ドメイン適用であり、不存在・非所有の いずれも同一の {@link
+ * AccessDeniedException}（→403）に正規化して連番orderIdの存在推測を封じる（SBD-1/SBD-8）。
  *
  * <p>{@code application.service} 配下に置くことで {@code ProgramContextAspect} が {@code
  * OrderApplicationService#placeOrder} を機能識別子として WHO カラム（{@code create_program}/{@code
@@ -55,18 +67,21 @@ public class OrderApplicationService {
   private final InventoryRepository inventoryRepository;
   private final CurrentUserProvider currentUserProvider;
   private final AuditLogRecorder auditLogRecorder;
+  private final OwnershipAuthorizationService ownershipAuthorizationService;
 
   public OrderApplicationService(
       CartRepository cartRepository,
       OrderRepository orderRepository,
       InventoryRepository inventoryRepository,
       CurrentUserProvider currentUserProvider,
-      AuditLogRecorder auditLogRecorder) {
+      AuditLogRecorder auditLogRecorder,
+      OwnershipAuthorizationService ownershipAuthorizationService) {
     this.cartRepository = cartRepository;
     this.orderRepository = orderRepository;
     this.inventoryRepository = inventoryRepository;
     this.currentUserProvider = currentUserProvider;
     this.auditLogRecorder = auditLogRecorder;
+    this.ownershipAuthorizationService = ownershipAuthorizationService;
   }
 
   /**
@@ -116,6 +131,39 @@ public class OrderApplicationService {
           ACTION_ORDER_CREATE, null, null, RESULT_FAILURE, failureDetail(e));
       throw e;
     }
+  }
+
+  /**
+   * #9 AC1/AC2(SBD-1): 認証プリンシパル本人の注文履歴一覧を新しい順（{@code order_id DESC}）でページング取得する。
+   *
+   * <p>WHEREはサーバー側で解決した {@link CurrentUserProvider} 由来のuserIdのみを使う（リクエストで束縛される値（form/param
+   * のusername等）を認可に使わない＝AC-neg1）。
+   */
+  public Page<OrderSummary> listOrders(Integer page, Integer size) {
+    Long userId = currentUserProvider.requireCurrentUser().userId();
+    PageRequest pageRequest = PageRequest.of(page, size);
+    List<OrderSummary> content =
+        orderRepository.listByUser(userId, pageRequest.offset(), pageRequest.size());
+    long totalElements = orderRepository.countByUser(userId);
+    return Page.of(content, pageRequest.page(), pageRequest.size(), totalElements);
+  }
+
+  /**
+   * #10 AC1/AC3(SBD-1/SBD-8): 所有者限定で注文詳細を取得する。不存在・非所有のいずれも同一の {@link AccessDeniedException}
+   * （→{@code GlobalExceptionHandler}が403＋監査に正規化）とし、連番orderIdの存在推測を封じる（AC-neg1/AC-neg2）。
+   *
+   * <p>perf設計（Sprint12/13の教訓）: ヘッダは {@link OrderRepository#findHeaderById} で1回だけ読み、所有者判定（{@link
+   * OwnershipAuthorizationService#assertOwner}）と最終応答の両方に使い回す。明細（{@link
+   * OrderRepository#findLinesByOrderId}）は認可通過後にのみ読む。
+   */
+  public OrderDetail getOrder(Long orderId) {
+    OrderHeader header =
+        orderRepository
+            .findHeaderById(orderId)
+            .orElseThrow(() -> new AccessDeniedException("Order not found or not owned"));
+    ownershipAuthorizationService.assertOwner(header.userId());
+    List<OrderDetailLine> lines = orderRepository.findLinesByOrderId(orderId);
+    return new OrderDetail(header.orderId(), header.orderDate(), header.totalPrice(), lines);
   }
 
   private BigDecimal calculateTotal(List<CartItem> cartItems) {

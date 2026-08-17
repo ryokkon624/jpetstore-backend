@@ -13,6 +13,8 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
 import spock.lang.Tag
 
+import java.time.LocalDate
+
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
@@ -31,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OrderControllerSpec extends IntegrationTestBase {
 
     private static final String USERNAME = "order_controller_test_user"
+    private static final String OTHER_USERNAME = "order_controller_other_user"
     private static final String ITEM_PLENTY = "ZZ-ORDER-1"
     private static final String ITEM_LOW = "ZZ-ORDER-2"
 
@@ -49,6 +52,7 @@ class OrderControllerSpec extends IntegrationTestBase {
     JdbcTemplate jdbcTemplate
 
     Long userId
+    Long otherUserId
     Cookie accessTokenCookie
 
     void setup() {
@@ -66,6 +70,17 @@ class OrderControllerSpec extends IntegrationTestBase {
         def user = new AuthenticatedUser(userId, USERNAME, ["USER"])
         accessTokenCookie = new Cookie(AuthCookieSupport.ACCESS_TOKEN_COOKIE, jwtService.generateAccessToken(user))
 
+        jdbcTemplate.update(
+                """
+                INSERT INTO m_account
+                    (username, email, first_name, last_name, status, address1, city, state, postal_code, country, phone,
+                     create_program, update_program)
+                VALUES (?, ?, 'Order', 'ControllerOtherTestUser', 'OK', '1 Test St', 'Testville', 'CA', '90000', 'USA', '555-0100',
+                     'TEST_FIXTURE', 'TEST_FIXTURE')
+                """,
+                OTHER_USERNAME, "${OTHER_USERNAME}@example.com")
+        otherUserId = jdbcTemplate.queryForObject("SELECT user_id FROM m_account WHERE username = ?", Long, OTHER_USERNAME)
+
         insertItem(ITEM_PLENTY, new BigDecimal("10.00"), 100)
         insertItem(ITEM_LOW, new BigDecimal("20.00"), 1)
     }
@@ -77,10 +92,10 @@ class OrderControllerSpec extends IntegrationTestBase {
     private void cleanupFixtures() {
         jdbcTemplate.update("DELETE FROM t_audit_log WHERE action = 'ORDER_CREATE'")
         jdbcTemplate.update("DELETE FROM t_order_line WHERE item_id IN (?, ?)", ITEM_PLENTY, ITEM_LOW)
-        jdbcTemplate.update("DELETE FROM t_order WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
-        jdbcTemplate.update("DELETE FROM t_cart_item WHERE cart_id IN (SELECT cart_id FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?))", USERNAME)
-        jdbcTemplate.update("DELETE FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
-        jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", USERNAME)
+        jdbcTemplate.update("DELETE FROM t_order WHERE user_id IN (SELECT user_id FROM m_account WHERE username IN (?, ?))", USERNAME, OTHER_USERNAME)
+        jdbcTemplate.update("DELETE FROM t_cart_item WHERE cart_id IN (SELECT cart_id FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username IN (?, ?)))", USERNAME, OTHER_USERNAME)
+        jdbcTemplate.update("DELETE FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username IN (?, ?))", USERNAME, OTHER_USERNAME)
+        jdbcTemplate.update("DELETE FROM m_account WHERE username IN (?, ?)", USERNAME, OTHER_USERNAME)
         jdbcTemplate.update("DELETE FROM t_inventory WHERE item_id IN (?, ?)", ITEM_PLENTY, ITEM_LOW)
         jdbcTemplate.update("DELETE FROM m_item WHERE item_id IN (?, ?)", ITEM_PLENTY, ITEM_LOW)
     }
@@ -99,6 +114,38 @@ class OrderControllerSpec extends IntegrationTestBase {
                 VALUES (?, ?, 'TEST_FIXTURE', 'TEST_FIXTURE')
                 """,
                 itemId, stock)
+    }
+
+    /** #9/#10: 一覧・詳細テスト用に t_order/t_order_line を直接JDBC投入する（プレースホルダ住所付き）。 */
+    private Long insertOrder(Long ownerUserId, LocalDate orderDate, BigDecimal totalPrice) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO t_order (
+                    user_id, order_date,
+                    ship_address1, ship_city, ship_state, ship_postal_code, ship_country,
+                    bill_address1, bill_city, bill_state, bill_postal_code, bill_country,
+                    total_price, bill_to_first_name, bill_to_last_name, ship_to_first_name, ship_to_last_name,
+                    status_code, create_program, update_program
+                ) VALUES (
+                    ?, ?,
+                    '1 Test St', 'Testville', 'CA', '90000', 'USA',
+                    '1 Test St', 'Testville', 'CA', '90000', 'USA',
+                    ?, 'Taro', 'Yamada', 'Taro', 'Yamada',
+                    'NEW', 'TEST_FIXTURE', 'TEST_FIXTURE'
+                )
+                """,
+                ownerUserId, orderDate, totalPrice)
+        jdbcTemplate.queryForObject(
+                "SELECT order_id FROM t_order WHERE user_id = ? ORDER BY order_id DESC LIMIT 1", Long, ownerUserId)
+    }
+
+    private void insertOrderLine(Long orderId, String itemId, int quantity, BigDecimal unitPrice) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO t_order_line (order_id, line_num, item_id, quantity, unit_price, create_program, update_program)
+                VALUES (?, 1, ?, ?, ?, 'TEST_FIXTURE', 'TEST_FIXTURE')
+                """,
+                orderId, itemId, quantity, unitPrice)
     }
 
     private void addToCart(String itemId, int quantity) {
@@ -328,5 +375,109 @@ class OrderControllerSpec extends IntegrationTestBase {
         order.ship_city == "Shipville"
         order.bill_to_first_name == "Taro"
         order.bill_city == "Testville"
+    }
+
+    def "#9 AC1: GET /api/ordersは本人の注文をorder_id DESC(新しい順)でページング返却する"() {
+        given:
+        def o1 = insertOrder(userId, LocalDate.of(2026, 1, 1), new BigDecimal("10.00"))
+        def o2 = insertOrder(userId, LocalDate.of(2026, 1, 2), new BigDecimal("20.00"))
+        def o3 = insertOrder(userId, LocalDate.of(2026, 1, 3), new BigDecimal("30.00"))
+
+        expect:
+        mockMvc.perform(get("/api/orders").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(3))
+                .andExpect(jsonPath('$.content[0].orderId').value(o3))
+                .andExpect(jsonPath('$.content[1].orderId').value(o2))
+                .andExpect(jsonPath('$.content[2].orderId').value(o1))
+                .andExpect(jsonPath('$.page').value(1))
+                .andExpect(jsonPath('$.size').value(12))
+                .andExpect(jsonPath('$.totalElements').value(3))
+                .andExpect(jsonPath('$.totalPages').value(1))
+    }
+
+    def "#9 AC1: GET /api/orders?page&sizeでサーバページングできる(3件をsize=2で2頁)"() {
+        given:
+        (1..3).each { insertOrder(userId, LocalDate.of(2026, 1, it), new BigDecimal("10.00")) }
+
+        expect:
+        mockMvc.perform(get("/api/orders").param("page", "1").param("size", "2").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(2))
+                .andExpect(jsonPath('$.totalPages').value(2))
+
+        and:
+        mockMvc.perform(get("/api/orders").param("page", "2").param("size", "2").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(1))
+    }
+
+    def "#9 未認証でGET /api/ordersすると401になる"() {
+        expect:
+        mockMvc.perform(get("/api/orders"))
+                .andExpect(status().isUnauthorized())
+    }
+
+    def "#9 AC-neg1(SBD-1): account.usernameクエリを他人に差し替えても自分の履歴のみ返る(identity-rebind IDOR再現せず)"() {
+        given:
+        def own = insertOrder(userId, LocalDate.of(2026, 1, 1), new BigDecimal("10.00"))
+        insertOrder(otherUserId, LocalDate.of(2026, 1, 1), new BigDecimal("99.99"))
+
+        expect:
+        mockMvc.perform(get("/api/orders").param("account.username", OTHER_USERNAME).cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.content.length()').value(1))
+                .andExpect(jsonPath('$.content[0].orderId').value(own))
+    }
+
+    def "#10 AC1/AC2/AC4/AC5: own注文詳細は200で明細(商品名/単価×数量)・合計・注文日を返す"() {
+        given:
+        def orderId = insertOrder(userId, LocalDate.of(2026, 1, 5), new BigDecimal("20.00"))
+        insertOrderLine(orderId, ITEM_PLENTY, 2, new BigDecimal("10.00"))
+
+        expect:
+        mockMvc.perform(get("/api/orders/${orderId}").cookie(accessTokenCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.orderId').value(orderId))
+                .andExpect(jsonPath('$.totalPrice').value(20.00d))
+                .andExpect(jsonPath('$.orderDate').value("2026-01-05"))
+                .andExpect(jsonPath('$.lines.length()').value(1))
+                .andExpect(jsonPath('$.lines[0].itemId').value(ITEM_PLENTY))
+                .andExpect(jsonPath('$.lines[0].productName').value("Angelfish"))
+                .andExpect(jsonPath('$.lines[0].quantity').value(2))
+                .andExpect(jsonPath('$.lines[0].unitPrice').value(10.00d))
+    }
+
+    def "#10 AC-neg1(SBD-1): 他人の注文詳細は403になる"() {
+        given:
+        def otherOrderId = insertOrder(otherUserId, LocalDate.of(2026, 1, 1), new BigDecimal("99.99"))
+
+        expect:
+        mockMvc.perform(get("/api/orders/${otherOrderId}").cookie(accessTokenCookie))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath('$.code').value("FORBIDDEN"))
+    }
+
+    def "#10 AC-neg2(SBD-8/SBD-10): 存在しない注文詳細も403(他人と同一・存在推測不可)でtrace/内部詳細を露出しない"() {
+        expect:
+        mockMvc.perform(get("/api/orders/999999999").cookie(accessTokenCookie))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath('$.code').value("FORBIDDEN"))
+                .andExpect(jsonPath('$.message').value("Access is denied"))
+    }
+
+    def "#10 未認証でGET /api/orders/{orderId}すると401になる"() {
+        given:
+        def orderId = insertOrder(userId, LocalDate.of(2026, 1, 1), new BigDecimal("10.00"))
+
+        expect:
+        mockMvc.perform(get("/api/orders/${orderId}"))
+                .andExpect(status().isUnauthorized())
+    }
+
+    def "#10 非数値orderIdは400になる(malformedは存在を漏らさない)"() {
+        expect:
+        mockMvc.perform(get("/api/orders/abc").cookie(accessTokenCookie))
+                .andExpect(status().isBadRequest())
     }
 }
