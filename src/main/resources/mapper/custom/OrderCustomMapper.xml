@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #8 注文（t_order / t_order_line）の永続化SQL。
+  orderIdはAUTO_INCREMENT（ID-23・legacyのselect→+1→update非アトミック採番を是正）。
+  useGeneratedKeysでheader.orderIdへ補完する。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.OrderCustomMapper">
+
+    <insert id="insertOrderHeader" useGeneratedKeys="true" keyProperty="orderId"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderHeaderWriteCustomEntity">
+        INSERT INTO t_order (
+            user_id, order_date,
+            ship_address1, ship_address2, ship_city, ship_state, ship_postal_code, ship_country,
+            bill_address1, bill_address2, bill_city, bill_state, bill_postal_code, bill_country,
+            total_price, bill_to_first_name, bill_to_last_name, ship_to_first_name, ship_to_last_name,
+            status_code,
+            create_user_id, create_program, update_user_id, update_program
+        ) VALUES (
+            #{userId}, #{orderDate},
+            #{shipAddress1}, #{shipAddress2}, #{shipCity}, #{shipState}, #{shipPostalCode}, #{shipCountry},
+            #{billAddress1}, #{billAddress2}, #{billCity}, #{billState}, #{billPostalCode}, #{billCountry},
+            #{totalPrice}, #{billToFirstName}, #{billToLastName}, #{shipToFirstName}, #{shipToLastName},
+            #{statusCode},
+            #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram}
+        )
+    </insert>
+
+    <insert id="insertOrderLine"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderLineWriteCustomEntity">
+        INSERT INTO t_order_line (
+            order_id, line_num, item_id, quantity, unit_price,
+            create_user_id, create_program, update_user_id, update_program
+        ) VALUES (
+            #{orderId}, #{lineNum}, #{itemId}, #{quantity}, #{unitPrice},
+            #{createUserId}, #{createProgram}, #{updateUserId}, #{updateProgram}
+        )
+    </insert>
+
+</mapper>

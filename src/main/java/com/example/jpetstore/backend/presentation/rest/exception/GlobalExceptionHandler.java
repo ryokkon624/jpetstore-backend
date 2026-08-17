@@ -1,5 +1,6 @@
 package com.example.jpetstore.backend.presentation.rest.exception;
 
+import com.example.jpetstore.backend.domain.exception.InsufficientStockException;
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
@@ -51,6 +52,16 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(OptimisticLockConflictException.class)
   public ResponseEntity<ErrorResponse> handleConflict(
       OptimisticLockConflictException e, HttpServletRequest request) {
+    return build(HttpStatus.CONFLICT, "CONFLICT", e.getMessage(), request);
+  }
+
+  /**
+   * 注文確定時の在庫不足・空カート（#8 AC2・計画フェーズ確定①）を 409 Conflict として正規化する。既存の {@link
+   * OptimisticLockConflictException}=409 と系を揃える。
+   */
+  @ExceptionHandler(InsufficientStockException.class)
+  public ResponseEntity<ErrorResponse> handleInsufficientStock(
+      InsufficientStockException e, HttpServletRequest request) {
     return build(HttpStatus.CONFLICT, "CONFLICT", e.getMessage(), request);
   }
 

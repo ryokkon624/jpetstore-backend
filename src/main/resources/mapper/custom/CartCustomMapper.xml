@@ -67,4 +67,9 @@
         DELETE FROM t_cart_item WHERE cart_id = #{cartId} AND item_id = #{itemId}
     </delete>
 
+    <!-- #8: 注文確定成功後のカート全クリア。 -->
+    <delete id="deleteCartItems">
+        DELETE FROM t_cart_item WHERE cart_id = #{cartId}
+    </delete>
+
 </mapper>

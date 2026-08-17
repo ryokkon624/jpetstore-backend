@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #8 在庫（t_inventory）のガード付きアトミック減算SQL（architecture-conventions §4.1）。
+  affected rows==0 は在庫不足（在庫が足りない、または同時発注の競合負け）を意味する。
+  read→act分離のTOCTOUを避けるため、単文UPDATEの行ロックのみで直列化する
+  （SELECT ... FOR UPDATE・version列は使わない。計画フェーズ確定）。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.InventoryCustomMapper">
+
+    <update id="decreaseInventory"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.InventoryDecreaseCustomEntity">
+        UPDATE t_inventory
+           SET quantity = quantity - #{quantity},
+               update_user_id = #{updateUserId},
+               update_program = #{updateProgram}
+         WHERE item_id = #{itemId}
+           AND quantity >= #{quantity}
+    </update>
+
+</mapper>
