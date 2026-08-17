@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  #14 アカウント/プロフィール編集（m_account / m_profile）の永続化SQL。
+  m_accountはversion楽観ロック付きUPDATE(WHERE user_id=:userId AND version=:expectedVersion。
+  arch §4.2・コードベース初の実UPDATE)。m_profileは同一tx内で無ガードUPDATE(m_account.versionが
+  編集アグリゲート単一の楽観ロックトークン・E2)。呼び出し元(MyBatisAccountRepository#updateAccount)が
+  m_accountのUPDATE affected rows==0なら本ファイルのupdateProfileを発行しない。
+-->
+<mapper namespace="com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountEditCustomMapper">
+
+    <select id="findByUserId" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountEditCustomEntity">
+        SELECT a.first_name AS firstName, a.last_name AS lastName, a.email AS email, a.phone AS phone,
+               a.address1 AS address1, a.address2 AS address2, a.city AS city, a.state AS state,
+               a.postal_code AS postalCode, a.country AS country,
+               p.language_preference AS languagePreference, p.favorite_category_id AS favoriteCategoryId,
+               a.version AS version
+          FROM m_account a
+          JOIN m_profile p ON p.user_id = a.user_id
+         WHERE a.user_id = #{userId}
+    </select>
+
+    <update id="updateAccount"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountUpdateCustomEntity">
+        UPDATE m_account
+           SET first_name = #{firstName}, last_name = #{lastName}, email = #{email}, phone = #{phone},
+               address1 = #{address1}, address2 = #{address2}, city = #{city}, state = #{state},
+               postal_code = #{postalCode}, country = #{country},
+               version = version + 1,
+               update_user_id = #{updateUserId}, update_program = #{updateProgram}
+         WHERE user_id = #{userId} AND version = #{expectedVersion}
+    </update>
+
+    <update id="updateProfile"
+            parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileUpdateCustomEntity">
+        UPDATE m_profile
+           SET language_preference = #{languagePreference}, favorite_category_id = #{favoriteCategoryId},
+               update_user_id = #{updateUserId}, update_program = #{updateProgram}
+         WHERE user_id = #{userId}
+    </update>
+
+</mapper>

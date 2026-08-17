@@ -15,6 +15,9 @@ import java.util.Optional;
  * 変換は Repository 実装内に閉じる。
  *
  * <p>#13: {@link #register} はユーザー登録（新規m_account/m_signon/m_profile INSERT）の唯一の入口。
+ *
+ * <p>#14: {@link #findEditDetailByUserId}/{@link #updateAccount} は本人のアカウント/プロフィール編集
+ * （version楽観ロック）の唯一の入口。
  */
 public interface AccountRepository {
 
@@ -33,4 +36,23 @@ public interface AccountRepository {
    *     uk_m_account_username} 違反・呼び出し元が409へ正規化する）
    */
   Long register(NewAccountRegistration registration);
+
+  /**
+   * 指定 {@code userId} の編集可能な全フィールド（氏名/連絡先/住所/langpref/favcategory）とversionを取得する （{@code
+   * m_account}⋈{@code m_profile}・#14 AC3・E3）。
+   *
+   * @return 該当行が無ければ {@code Optional.empty()}（呼び出し元で404）
+   */
+  Optional<AccountEditDetail> findEditDetailByUserId(Long userId);
+
+  /**
+   * アカウント/プロフィールを更新する（#14 AC1〜AC3）。{@code m_account} は {@code version}楽観ロック付きUPDATE（{@code WHERE
+   * user_id=:id AND version=:expectedVersion}）、 {@code m_profile}は同一トランザクション内で無ガードUPDATE（{@code
+   * m_account.version}が編集アグリゲート 単一の楽観ロックトークン・E2）。{@code m_account}のUPDATEが競合（affected rows==0）した場合、
+   * {@code m_profile}のUPDATEは行わない。
+   *
+   * @return {@code m_account}側UPDATEの影響行数（0=楽観ロック競合・呼び出し元が{@code
+   *     AffectedRows.requireUpdated}で409へ正規化する。1=成功）
+   */
+  int updateAccount(AccountUpdate update);
 }
