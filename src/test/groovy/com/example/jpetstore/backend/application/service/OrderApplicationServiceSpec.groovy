@@ -6,12 +6,19 @@ import com.example.jpetstore.backend.domain.cart.CartRepository
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException
 import com.example.jpetstore.backend.domain.inventory.InventoryRepository
 import com.example.jpetstore.backend.domain.order.OrderAddress
+import com.example.jpetstore.backend.domain.order.OrderDetailLine
+import com.example.jpetstore.backend.domain.order.OrderHeader
 import com.example.jpetstore.backend.domain.order.OrderRepository
+import com.example.jpetstore.backend.domain.order.OrderSummary
 import com.example.jpetstore.backend.domain.order.PlaceOrderCommand
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider
+import com.example.jpetstore.backend.domain.security.OwnershipAuthorizationService
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder
+import org.springframework.security.access.AccessDeniedException
 import spock.lang.Specification
+
+import java.time.LocalDate
 
 /**
  * #8/#30: 注文確定ユースケース（サーバ再計算・在庫の原子的引当・成功/失敗監査）を検証する。
@@ -35,9 +42,11 @@ class OrderApplicationServiceSpec extends Specification {
     CurrentUserProvider currentUserProvider = Stub() {
         requireCurrentUser() >> new AuthenticatedUser(USER_ID, "order_user", ["USER"])
     }
+    OwnershipAuthorizationService ownershipAuthorizationService = new OwnershipAuthorizationService(currentUserProvider)
 
     OrderApplicationService service = new OrderApplicationService(
-            cartRepository, orderRepository, inventoryRepository, currentUserProvider, auditLogRecorder)
+            cartRepository, orderRepository, inventoryRepository, currentUserProvider, auditLogRecorder,
+            ownershipAuthorizationService)
 
     private static OrderAddress address(String firstName = "Taro") {
         new OrderAddress(firstName, "Yamada", "1 Test St", null, "Testville", "CA", "90000", "USA")
@@ -216,7 +225,8 @@ class OrderApplicationServiceSpec extends Specification {
             requireCurrentUser() >> { throw new org.springframework.security.access.AccessDeniedException("Authentication required") }
         }
         def unauthenticatedService = new OrderApplicationService(
-                cartRepository, orderRepository, inventoryRepository, unauthenticatedProvider, auditLogRecorder)
+                cartRepository, orderRepository, inventoryRepository, unauthenticatedProvider, auditLogRecorder,
+                new OwnershipAuthorizationService(unauthenticatedProvider))
 
         when:
         unauthenticatedService.placeOrder(new PlaceOrderCommand(address(), null, false))
@@ -225,5 +235,75 @@ class OrderApplicationServiceSpec extends Specification {
         thrown(org.springframework.security.access.AccessDeniedException)
         0 * cartRepository.ensureCart(_)
         0 * cartRepository.findByCartId(_)
+    }
+
+    def "#9 AC1/AC2: listOrdersは認証プリンシパルのuserIdでlistByUser/countByUserを呼びPageを組み立てる"() {
+        given:
+        def summaries = [new OrderSummary(2L, LocalDate.of(2026, 1, 2), 20.00G)]
+
+        when:
+        def page = service.listOrders(1, 12)
+
+        then:
+        1 * orderRepository.listByUser(USER_ID, 0, 12) >> summaries
+        1 * orderRepository.countByUser(USER_ID) >> 1L
+        page.content() == summaries
+        page.page() == 1
+        page.size() == 12
+        page.totalElements() == 1L
+    }
+
+    def "#10 AC1/AC2: getOrderは所有者一致なら明細付きOrderDetailを返す"() {
+        given:
+        def header = new OrderHeader(9L, USER_ID, LocalDate.of(2026, 1, 9), 33.00G)
+        def lines = [new OrderDetailLine("EST-1", "Angelfish", 2, 16.50G)]
+
+        when:
+        def detail = service.getOrder(9L)
+
+        then:
+        1 * orderRepository.findHeaderById(9L) >> Optional.of(header)
+        1 * orderRepository.findLinesByOrderId(9L) >> lines
+
+        and:
+        detail.orderId() == 9L
+        detail.orderDate() == LocalDate.of(2026, 1, 9)
+        detail.totalPrice() == 33.00G
+        detail.lines() == lines
+    }
+
+    def "#10 AC3/AC-neg2(SBD-8): 存在しないorderIdはAccessDeniedException(403)になり明細は読まない"() {
+        when:
+        service.getOrder(999L)
+
+        then:
+        1 * orderRepository.findHeaderById(999L) >> Optional.empty()
+        thrown(AccessDeniedException)
+        0 * orderRepository.findLinesByOrderId(_)
+    }
+
+    def "#10 AC-neg1(SBD-1): 他人のorderIdはAccessDeniedException(403)になり明細は読まない(同一403でnot-foundと区別不能)"() {
+        given:
+        def header = new OrderHeader(9L, USER_ID + 1, LocalDate.of(2026, 1, 9), 33.00G)
+
+        when:
+        service.getOrder(9L)
+
+        then:
+        1 * orderRepository.findHeaderById(9L) >> Optional.of(header)
+        thrown(AccessDeniedException)
+        0 * orderRepository.findLinesByOrderId(_)
+    }
+
+    def "perf: getOrderはfindHeaderByIdを1回だけ呼び、識別子解決用と最終応答用を分けない"() {
+        given:
+        def header = new OrderHeader(9L, USER_ID, LocalDate.of(2026, 1, 9), 33.00G)
+
+        when:
+        service.getOrder(9L)
+
+        then:
+        1 * orderRepository.findHeaderById(9L) >> Optional.of(header)
+        1 * orderRepository.findLinesByOrderId(9L) >> []
     }
 }

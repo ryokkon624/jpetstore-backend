@@ -38,4 +38,46 @@
         )
     </insert>
 
+    <!--
+      #9 注文履歴一覧（AC1/AC2・SBD-1）。本人スコープ（WHERE user_id=?）・新しい順（order_id DESC・
+      (user_id, order_id)複合索引・Sprint14 Q1）でページング取得する。
+    -->
+    <select id="selectOrdersByUserId" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderSummaryCustomEntity">
+        SELECT order_id, order_date, total_price
+          FROM t_order
+         WHERE user_id = #{userId}
+         ORDER BY order_id DESC
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOrdersByUserId" resultType="long">
+        SELECT COUNT(*)
+          FROM t_order
+         WHERE user_id = #{userId}
+    </select>
+
+    <!--
+      #10 注文詳細（AC1/AC3）。所有者解決（userId）と応答（orderDate/totalPrice）の両方に使う単一ヘッダ取得。
+      識別子解決用と最終応答用を分けず1回のSELECTで済ませる（Sprint12/13の教訓＝perf純増防止）。
+    -->
+    <select id="selectOrderHeaderById" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderHeaderCustomEntity">
+        SELECT order_id, user_id, order_date, total_price
+          FROM t_order
+         WHERE order_id = #{orderId}
+    </select>
+
+    <!--
+      #10 注文詳細の明細（AC2・ID-24）。t_order_line ⋈ m_item ⋈ m_product で商品名を補完する
+      （CatalogCustomMapper#selectItemByIdのJOIN方式を参考）。認可通過後にのみ呼ばれる想定
+      （OrderApplicationService#getOrderがassertOwner成功後にのみ本メソッドを呼ぶ）。
+    -->
+    <select id="selectOrderLinesByOrderId" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.OrderLineViewCustomEntity">
+        SELECT ol.item_id AS item_id, p.name AS product_name, ol.quantity AS quantity, ol.unit_price AS unit_price
+          FROM t_order_line ol
+          JOIN m_item i ON i.item_id = ol.item_id
+          JOIN m_product p ON p.product_id = i.product_id
+         WHERE ol.order_id = #{orderId}
+         ORDER BY ol.line_num
+    </select>
+
 </mapper>
