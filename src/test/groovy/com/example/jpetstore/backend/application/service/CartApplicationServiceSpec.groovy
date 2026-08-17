@@ -174,24 +174,22 @@ class CartApplicationServiceSpec extends Specification {
         1 * cartRepository.findByCartId(CART_ID) >> emptyCart()
     }
 
-    def "計画②: mergeはclientとserverの数量を加算し在庫数でクランプしてupsertItemへ渡す(#29 perf: ensureCart/findByCartIdは各1回)"() {
-        given:
-        cartRepository.findStock(CART_ID, "EST-1") >> Optional.of(stock("EST-1", 100, 3))
-
+    def "計画②: mergeはclientとserverの数量を加算し在庫数でクランプしてupsertItemへ渡す(#28: findStocksを1回だけ呼び、findStockは呼ばない)"() {
         when: "client側2個をマージ(server側既存3個+2=5、在庫100なのでクランプ無し)"
         service.merge([new CartLine("EST-1", 2)])
 
         then:
         1 * cartRepository.ensureCart(USER_ID) >> CART_ID
+        1 * cartRepository.findStocks(CART_ID, ["EST-1"]) >> ["EST-1": stock("EST-1", 100, 3)]
         1 * cartRepository.upsertItem(CART_ID, { CartItem line -> line.itemId() == "EST-1" && line.quantity() == 5 })
         1 * cartRepository.findByCartId(CART_ID) >> emptyCart()
+        0 * cartRepository.findStock(_, _)
     }
 
-    def "mergeは未知のitemId(findStockがempty)を例外にせず無視して他の行を処理する"() {
+    def "mergeは未知のitemId(findStocksの結果に無い)を例外にせず無視して他の行を処理する"() {
         given:
         cartRepository.ensureCart(USER_ID) >> CART_ID
-        cartRepository.findStock(CART_ID, "NOPE") >> Optional.empty()
-        cartRepository.findStock(CART_ID, "EST-1") >> Optional.of(stock("EST-1", 100, 0))
+        cartRepository.findStocks(CART_ID, ["NOPE", "EST-1"]) >> ["EST-1": stock("EST-1", 100, 0)]
         cartRepository.findByCartId(CART_ID) >> emptyCart()
 
         when:
@@ -206,7 +204,7 @@ class CartApplicationServiceSpec extends Specification {
     def "mergeは在庫0のアイテムはクランプ結果0となりCartRepository#removeItemを呼ぶ"() {
         given:
         cartRepository.ensureCart(USER_ID) >> CART_ID
-        cartRepository.findStock(CART_ID, "EST-3") >> Optional.of(stock("EST-3", 0, 0))
+        cartRepository.findStocks(CART_ID, ["EST-3"]) >> ["EST-3": stock("EST-3", 0, 0)]
         cartRepository.findByCartId(CART_ID) >> emptyCart()
 
         when:
@@ -217,7 +215,7 @@ class CartApplicationServiceSpec extends Specification {
         0 * cartRepository.upsertItem(_, _)
     }
 
-    def "#5 AC2(計画フェーズ確定②): mergeはquantity<=0(#quantity)の行を黙殺せず例外を投げ、findStockを呼ばない"() {
+    def "#5 AC2(計画フェーズ確定②): mergeはquantity<=0(#quantity)の行を黙殺せず例外を投げ、findStocksを呼ばない"() {
         given:
         cartRepository.ensureCart(USER_ID) >> CART_ID
 
@@ -226,10 +224,55 @@ class CartApplicationServiceSpec extends Specification {
 
         then:
         thrown(IllegalArgumentException)
-        0 * cartRepository.findStock(_, _)
+        0 * cartRepository.findStocks(_, _)
         0 * cartRepository.upsertItem(_, _)
 
         where:
         quantity << [0, -1, -100]
+    }
+
+    def "#28: N行のmergeでもfindStocksは1回だけ呼ばれ、findStock(単数)は呼ばれない(N+1解消)"() {
+        given:
+        cartRepository.ensureCart(USER_ID) >> CART_ID
+        cartRepository.findByCartId(CART_ID) >> emptyCart()
+
+        when:
+        service.merge([new CartLine("EST-1", 1), new CartLine("EST-2", 1), new CartLine("EST-22", 1)])
+
+        then:
+        // stub(>>)とcount検証(N *)は同一then:インタラクションにまとめる(given:とthen:に分けるとthen:側が優先され
+        // given:側の戻り値クロージャが無視されるSpockの既知挙動を回避するため)
+        1 * cartRepository.findStocks(_, _) >> [
+                "EST-1" : stock("EST-1", 100, 0),
+                "EST-2" : stock("EST-2", 1, 0),
+                "EST-22": stock("EST-22", 50, 0),
+        ]
+        0 * cartRepository.findStock(_, _)
+    }
+
+    def "#28: 重複itemIdのclient行はitemId単位で合算してから1回でマージする(coalesce・逐次accumulateと同じ最終値)"() {
+        given: "server側既存3個・在庫10。client側で同一itemIdを2行(2個+4個)に分けて送る(改竄/localStorage重複を模擬)"
+        cartRepository.ensureCart(USER_ID) >> CART_ID
+        cartRepository.findStocks(CART_ID, ["EST-1"]) >> ["EST-1": stock("EST-1", 10, 3)]
+        cartRepository.findByCartId(CART_ID) >> emptyCart()
+
+        when:
+        service.merge([new CartLine("EST-1", 2), new CartLine("EST-1", 4)])
+
+        then: "3+2+4=9(在庫10以内)が1回のupsertItemで渡る(逐次1個ずつ加算するのと同じ最終値)"
+        1 * cartRepository.upsertItem(CART_ID, { CartItem line -> line.itemId() == "EST-1" && line.quantity() == 9 })
+    }
+
+    def "#28: 重複itemIdの合算が在庫を超える場合は在庫数にクランプする(逐次クランプと同値)"() {
+        given:
+        cartRepository.ensureCart(USER_ID) >> CART_ID
+        cartRepository.findStocks(CART_ID, ["EST-1"]) >> ["EST-1": stock("EST-1", 5, 3)]
+        cartRepository.findByCartId(CART_ID) >> emptyCart()
+
+        when:
+        service.merge([new CartLine("EST-1", 10), new CartLine("EST-1", 10)])
+
+        then:
+        1 * cartRepository.upsertItem(CART_ID, { CartItem line -> line.itemId() == "EST-1" && line.quantity() == 5 })
     }
 }

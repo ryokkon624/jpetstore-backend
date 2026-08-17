@@ -36,6 +36,15 @@ public interface CartCustomMapper {
       @Param("itemId") String itemId, @Param("cartId") Long cartId);
 
   /**
+   * 追加/更新/マージの事前チェック用に、複数アイテムの在庫qty・当該カート内の既存数量を1クエリでまとめて取得する（#28・{@code merge}のN+1解消用バッチ版。{@link
+   * #selectItemForCart} と同じLEFT JOIN構造をitemIds分まとめて取得する）。{@code itemIds} は空であってはならない（呼び出し元 {@code
+   * CartRepository#findStocks} が空リストを短絡する）。{@code m_item}
+   * に該当行が無いitemIdは結果に含まれない（呼び出し元が無視する。404化はしない）。
+   */
+  List<ItemForCartCustomEntity> selectItemsForCart(
+      @Param("itemIds") List<String> itemIds, @Param("cartId") Long cartId);
+
+  /**
    * カート明細を最終的な絶対数量でupsertする（{@code ON DUPLICATE KEY UPDATE}）。加算/クランプ等の算出は呼び出し元（{@code
    * CartApplicationService}）が済ませ、ここでは単文アトミックな書き込みのみ行う（D3）。
    */

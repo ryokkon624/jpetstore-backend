@@ -7,7 +7,9 @@ import com.example.jpetstore.backend.domain.cart.CartRepository;
 import com.example.jpetstore.backend.domain.cart.StockAvailability;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,30 +101,67 @@ public class CartApplicationService {
    * <p>未知の itemId（クライアント側の古いローカルデータ等）は例外にせず無視し、他の行の処理を継続する（防御的。ACに明記が無いための実装判断。詳細は
    * implementation-notes.md）。
    *
+   * <p>#28（N+1解消）: ①全行の {@code quantity<=0} をfail-fastで検証（在庫readより前・不正入力時は永続化アクセスを一切行わない）→②{@code
+   * clientLines} を itemId で合算（coalesce。localStorage改竄等で同一itemIdが複数行に分かれていても対応。{@link #coalesce}
+   * 参照）→③{@link CartRepository#findStocks} で対象アイテムの在庫を1回のバッチ取得→④取得済みmapを参照しながら {@link
+   * Cart#mergeLine} をループ適用、という順で処理する。在庫クランプ（{@code min(combined,
+   * stockQuantity)}）は単調でありcoalesce後に1回適用しても 逐次加算後に都度適用するのと結果が変わらないため、この retrofit は挙動不変（{@code
+   * Cart#mergeLine} 自体は無改修）。
+   *
    * @throws IllegalArgumentException client行に {@code quantity<=0} が含まれる場合（#5
    *     AC2・計画フェーズ確定②。黙殺廃止・400相当。{@code @Transactional} により部分適用されない）
    */
   @Transactional
   public Cart merge(List<CartLine> clientLines) {
     Long cartId = cartRepository.ensureCart(currentUserId());
-    Cart cart = Cart.identity(cartId);
 
     for (CartLine clientLine : clientLines) {
       if (clientLine.quantity() <= 0) {
         throw new IllegalArgumentException("Merge line quantity must be a positive integer");
       }
-      Optional<StockAvailability> stock = cartRepository.findStock(cartId, clientLine.itemId());
-      if (stock.isEmpty()) {
+    }
+
+    Map<String, Integer> coalescedLines = coalesce(clientLines);
+    Map<String, StockAvailability> stocks =
+        cartRepository.findStocks(cartId, List.copyOf(coalescedLines.keySet()));
+
+    Cart cart = Cart.identity(cartId);
+    for (Map.Entry<String, Integer> coalescedLine : coalescedLines.entrySet()) {
+      StockAvailability stock = stocks.get(coalescedLine.getKey());
+      if (stock == null) {
         continue;
       }
-      Optional<CartItem> line = cart.mergeLine(stock.get(), clientLine.quantity());
+      Optional<CartItem> line = cart.mergeLine(stock, coalescedLine.getValue());
       if (line.isPresent()) {
         cartRepository.upsertItem(cartId, line.get());
       } else {
-        cartRepository.removeItem(cartId, clientLine.itemId());
+        cartRepository.removeItem(cartId, coalescedLine.getKey());
       }
     }
     return cartRepository.findByCartId(cartId);
+  }
+
+  /**
+   * {@code clientLines} を itemId 単位で数量合算する（#28）。挿入順を保持し {@code findStocks} へ渡すitemId列を安定させる。加算は
+   * {@link Math#addExact(int, int)} でオーバーフロー検出し、オーバーフロー時は {@code
+   * Integer#MAX_VALUE}（事実上無制限の需要）へ飽和させる（下流の {@link Cart#mergeLine}
+   * 自身がサーバー側数量との加算でも同じオーバーフロー保護を持つため、単純な {@code +} による無防備なwraparoundを避け、合算後クランプの厳密パリティを保つ）。
+   */
+  private static Map<String, Integer> coalesce(List<CartLine> clientLines) {
+    Map<String, Integer> coalesced = new LinkedHashMap<>();
+    for (CartLine clientLine : clientLines) {
+      coalesced.merge(
+          clientLine.itemId(), clientLine.quantity(), CartApplicationService::addSaturating);
+    }
+    return coalesced;
+  }
+
+  private static int addSaturating(int a, int b) {
+    try {
+      return Math.addExact(a, b);
+    } catch (ArithmeticException overflow) {
+      return Integer.MAX_VALUE;
+    }
   }
 
   private StockAvailability requireStock(Long cartId, String itemId) {

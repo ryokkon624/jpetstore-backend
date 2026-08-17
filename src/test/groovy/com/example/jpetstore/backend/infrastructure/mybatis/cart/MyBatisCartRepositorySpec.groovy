@@ -5,6 +5,7 @@ import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartHeaderCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemWriteCustomEntity
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemForCartCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCustomMapper
 import spock.lang.Specification
 
@@ -57,6 +58,38 @@ class MyBatisCartRepositorySpec extends Specification {
         1 * cartCustomMapper.ensureCart(_) >> { CartHeaderCustomEntity h -> h.cartId = CART_ID }
         1 * cartCustomMapper.selectCartItems(CART_ID) >> []
         cart.cartId() == CART_ID
+    }
+
+    def "#28: findStocksは複数itemIdをまとめてcartCustomMapper#selectItemsForCartへ1回で渡す(N+1解消)"() {
+        given:
+        def entity1 = new ItemForCartCustomEntity()
+        entity1.itemId = "EST-1"
+        entity1.stockQuantity = 100
+        entity1.currentQuantity = 2
+        def entity2 = new ItemForCartCustomEntity()
+        entity2.itemId = "EST-2"
+        entity2.stockQuantity = 1
+        entity2.currentQuantity = 0
+
+        when:
+        def stocks = repository.findStocks(CART_ID, ["EST-1", "EST-2"])
+
+        then:
+        1 * cartCustomMapper.selectItemsForCart(["EST-1", "EST-2"], CART_ID) >> [entity1, entity2]
+        stocks.size() == 2
+        stocks["EST-1"].stockQuantity() == 100
+        stocks["EST-1"].currentQuantity() == 2
+        stocks["EST-2"].stockQuantity() == 1
+        stocks["EST-2"].currentQuantity() == 0
+    }
+
+    def "#28: findStocksは空リストならcartCustomMapper#selectItemsForCartを呼ばずMap.of()を返す(IN()不正SQL回避)"() {
+        when:
+        def stocks = repository.findStocks(CART_ID, [])
+
+        then:
+        0 * cartCustomMapper.selectItemsForCart(_, _)
+        stocks.isEmpty()
     }
 
     def "upsertItemはcartCustomMapper#upsertCartItemQuantityを1回だけ呼び、現在ユーザをWHOへ補完する"() {

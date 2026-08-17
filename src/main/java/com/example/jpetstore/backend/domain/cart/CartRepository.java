@@ -1,5 +1,7 @@
 package com.example.jpetstore.backend.domain.cart;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -38,10 +40,20 @@ public interface CartRepository {
   /**
    * 追加/更新/マージの不変条件判定に必要な在庫コンテキストを取得する（{@code m_item} 起点）。
    *
-   * @return {@code m_item} に該当行が無ければ {@code Optional.empty()}（アイテム不存在＝呼び出し元で404）。#28 でバッチ化（{@code
-   *     findStocks(cartId, List<itemId>)}）へ拡張できる seam として、本メソッドは単一itemId解決のまま残す。
+   * @return {@code m_item} に該当行が無ければ {@code Optional.empty()}（アイテム不存在＝呼び出し元で404）。add/update
+   *     ユースケース（単一itemId）向けに残す。マージのようにN件をまとめて解決する場合は {@link #findStocks} を使う（#28）。
    */
   Optional<StockAvailability> findStock(Long cartId, String itemId);
+
+  /**
+   * 複数アイテムの在庫コンテキストを1回のバッチ取得でまとめて解決する（#28・{@code CartApplicationService#merge} のN+1解消。ループ内で {@link
+   * #findStock} をN回呼ぶ代わりに本メソッドを1回だけ呼ぶ）。
+   *
+   * @param itemIds 空リストの場合は永続化アクセスを行わず {@code Map.of()} を返す（{@code IN ()} の不正SQLを避けるための短絡）。
+   * @return itemId をキーとした {@link StockAvailability} の map。{@code m_item} に該当行が無い itemId
+   *     はキーごと結果から除外される（呼び出し元が無視する。404化はしない）。
+   */
+  Map<String, StockAvailability> findStocks(Long cartId, List<String> itemIds);
 
   /** カート明細1行を最終的な絶対数量でupsertする（単一行・余分な書込ゼロ）。 */
   void upsertItem(Long cartId, CartItem line);

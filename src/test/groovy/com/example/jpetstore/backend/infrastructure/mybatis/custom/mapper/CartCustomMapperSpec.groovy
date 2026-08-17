@@ -170,6 +170,37 @@ class CartCustomMapperSpec extends IntegrationTestBase {
         }
     }
 
+    def "#28: selectItemsForCartは複数itemIdの在庫qty・既存数量を1クエリでまとめて取得する"() {
+        given:
+        def cartId = ensureCart()
+        def write = new CartItemWriteCustomEntity()
+        write.cartId = cartId
+        write.itemId = "EST-1"
+        write.quantity = 2
+        mapper.upsertCartItemQuantity(write)
+
+        when:
+        def items = mapper.selectItemsForCart(["EST-1", "EST-2", "EST-3"], cartId)
+
+        then:
+        items.size() == 3
+        def byId = items.collectEntries { [(it.itemId): it] }
+        byId["EST-1"].stockQuantity == 100
+        byId["EST-1"].currentQuantity == 2
+        byId["EST-2"].stockQuantity == 1
+        byId["EST-2"].currentQuantity == 0
+        byId["EST-3"].stockQuantity == 0
+        byId["EST-3"].currentQuantity == 0
+    }
+
+    def "#28: selectItemsForCartは存在しないitemIdを結果から除外する(404判定はApplication層のfindStock単数に残る)"() {
+        given:
+        def cartId = ensureCart()
+
+        expect:
+        mapper.selectItemsForCart(["EST-1", "NOPE"], cartId)*.itemId == ["EST-1"]
+    }
+
     def "AC4/SBD-10: selectItemForCartは存在しないitemIdでnullを返す"() {
         given:
         def cartId = ensureCart()
