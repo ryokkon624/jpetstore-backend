@@ -50,6 +50,25 @@
     </select>
 
     <!--
+      selectItemsForCart: #28 マージのN+1解消用バッチ版。selectItemForCartと同じLEFT JOIN構造を、
+      CatalogCustomMapperのforeach先例(searchProductsWhere)に倣うIN句でitemIds分まとめて1クエリ取得する。
+      呼び出し元(MyBatisCartRepository#findStocks)がitemIds空リストを短絡するため、本SQLは常に1件以上の
+      itemIdで呼ばれる前提（IN ()の不正SQLは発生しない）。
+    -->
+    <select id="selectItemsForCart" resultType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemForCartCustomEntity">
+        SELECT i.item_id AS item_id,
+               COALESCE(inv.quantity, 0) AS stock_quantity,
+               COALESCE(ci.quantity, 0) AS current_quantity
+          FROM m_item i
+          LEFT JOIN t_inventory inv ON inv.item_id = i.item_id
+          LEFT JOIN t_cart_item ci ON ci.cart_id = #{cartId} AND ci.item_id = i.item_id
+         WHERE i.item_id IN
+            <foreach collection="itemIds" item="itemId" open="(" separator="," close=")">
+                #{itemId}
+            </foreach>
+    </select>
+
+    <!--
       upsertCartItemQuantity: 呼び出し元が算出済みの最終絶対数量をupsertする単文アトミック更新（D3）。
       UNIQUE(cart_id, item_id)により、同一アイテムの重複行（幽霊行=ID-17）を構造的に防ぐ。
     -->

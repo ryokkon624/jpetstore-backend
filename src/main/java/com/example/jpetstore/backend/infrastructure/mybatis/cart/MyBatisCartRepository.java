@@ -9,7 +9,11 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartHe
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.CartItemWriteCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ItemForCartCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCustomMapper;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -59,6 +63,16 @@ public class MyBatisCartRepository implements CartRepository {
   public Optional<StockAvailability> findStock(Long cartId, String itemId) {
     ItemForCartCustomEntity entity = cartCustomMapper.selectItemForCart(itemId, cartId);
     return Optional.ofNullable(entity).map(CartConverter::toStockAvailability);
+  }
+
+  @Override
+  public Map<String, StockAvailability> findStocks(Long cartId, List<String> itemIds) {
+    if (itemIds.isEmpty()) {
+      return Map.of();
+    }
+    return cartCustomMapper.selectItemsForCart(itemIds, cartId).stream()
+        .map(CartConverter::toStockAvailability)
+        .collect(Collectors.toMap(StockAvailability::itemId, Function.identity()));
   }
 
   @Override

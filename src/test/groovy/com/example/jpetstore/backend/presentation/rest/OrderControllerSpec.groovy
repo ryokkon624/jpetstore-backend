@@ -296,6 +296,36 @@ class OrderControllerSpec extends IntegrationTestBase {
         jdbcTemplate.queryForObject("SELECT user_id FROM t_order WHERE order_id = ?", Long, orderId) == userId
     }
 
+    def "#12 AC1/AC2/AC-neg1(ID-8): creditCard/cardNumber/expiryDate等を注入しても無視され201になり、レスポンスにcard関連キーは一切含まれない"() {
+        given:
+        addToCart(ITEM_PLENTY, 1)
+
+        expect:
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(placeOrderBody('"creditCard":"4111111111111111","cardNumber":"4111111111111111","cardType":"VISA","expiryDate":"12/2030"')))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath('$.orderId').exists())
+                .andExpect(jsonPath('$.totalPrice').value(10.00d))
+    }
+
+    def "#12 AC-neg1(ID-8): 注文確定レスポンスJSONにcard/creditCard関連フィールドは存在しない"() {
+        given:
+        addToCart(ITEM_PLENTY, 1)
+
+        when:
+        def result = mockMvc.perform(post("/api/orders").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(placeOrderBody()))
+                .andExpect(status().isCreated())
+                .andReturn()
+
+        then: "DTOにcard項目自体が無い構造的な非保持(orderId/totalPriceのみ)。余分な送信フィールドも応答に反映されない"
+        def body = result.response.contentAsString.toLowerCase()
+        !body.contains("card")
+        !body.contains("credit")
+    }
+
     def "AC6: 成功時はresult=SUCCESSのORDER_CREATE監査行が残る"() {
         given:
         addToCart(ITEM_PLENTY, 1)
