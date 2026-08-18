@@ -4,6 +4,7 @@ import com.example.jpetstore.backend.domain.account.AccountUpdate
 import com.example.jpetstore.backend.domain.account.NewAccountRegistration
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountContactCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountEditCustomEntity
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountPreferencesCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountRegistrationCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountUpdateCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileRegistrationCustomEntity
@@ -12,6 +13,7 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.Signon
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonUpdateCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountEditCustomMapper
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountPreferencesCustomMapper
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountRegistrationCustomMapper
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.SignonCustomMapper
 import spock.lang.Specification
@@ -32,10 +34,12 @@ class MyBatisAccountRepositorySpec extends Specification {
     AccountContactCustomMapper accountContactCustomMapper = Mock()
     AccountRegistrationCustomMapper accountRegistrationCustomMapper = Mock()
     AccountEditCustomMapper accountEditCustomMapper = Mock()
+    AccountPreferencesCustomMapper accountPreferencesCustomMapper = Mock()
     SignonCustomMapper signonCustomMapper = Mock()
 
     MyBatisAccountRepository repository = new MyBatisAccountRepository(
-            accountContactCustomMapper, accountRegistrationCustomMapper, accountEditCustomMapper, signonCustomMapper)
+            accountContactCustomMapper, accountRegistrationCustomMapper, accountEditCustomMapper,
+            accountPreferencesCustomMapper, signonCustomMapper)
 
     private static AccountContactCustomEntity contactEntity() {
         def e = new AccountContactCustomEntity()
@@ -77,6 +81,33 @@ class MyBatisAccountRepositorySpec extends Specification {
 
         then:
         1 * accountContactCustomMapper.findByUserId(USER_ID) >> null
+        result.isEmpty()
+    }
+
+    private static AccountPreferencesCustomEntity preferencesEntity() {
+        def e = new AccountPreferencesCustomEntity()
+        e.colorSchemePreference = "dark"
+        e.languagePreference = "japanese"
+        e
+    }
+
+    def "findPreferencesByUserId: mapperを1回呼びEntity→UserPreferencesへ変換して返す(#36/#25)"() {
+        when:
+        def result = repository.findPreferencesByUserId(USER_ID)
+
+        then:
+        1 * accountPreferencesCustomMapper.findByUserId(USER_ID) >> preferencesEntity()
+        result.isPresent()
+        result.get().colorSchemePreference() == "dark"
+        result.get().languagePreference() == "japanese"
+    }
+
+    def "findPreferencesByUserId: mapperがnullを返した場合はOptional.emptyを返す"() {
+        when:
+        def result = repository.findPreferencesByUserId(USER_ID)
+
+        then:
+        1 * accountPreferencesCustomMapper.findByUserId(USER_ID) >> null
         result.isEmpty()
     }
 
@@ -136,6 +167,7 @@ class MyBatisAccountRepositorySpec extends Specification {
         e.country = "USA"
         e.languagePreference = "english"
         e.favoriteCategoryId = "FISH"
+        e.colorSchemePreference = "dark"
         e.version = 3L
         e
     }
@@ -159,6 +191,7 @@ class MyBatisAccountRepositorySpec extends Specification {
         result.get().country() == "USA"
         result.get().languagePreference() == "english"
         result.get().favoriteCategoryId() == "FISH"
+        result.get().colorSchemePreference() == "dark"
         result.get().version() == 3L
     }
 
@@ -175,7 +208,7 @@ class MyBatisAccountRepositorySpec extends Specification {
         new AccountUpdate(
                 USER_ID, 3L, "Taro", "Yamada", "taro2@example.com", "555-0199",
                 "2 New St", null, "Newtown", "NY", "10001", "USA",
-                "japanese", "DOGS")
+                "japanese", "DOGS", "light")
     }
 
     def "updateAccount: version楽観ロック付きでm_accountを更新し、成功すればm_profileも無ガードで更新する"() {
@@ -205,6 +238,7 @@ class MyBatisAccountRepositorySpec extends Specification {
             e.userId == USER_ID &&
                     e.languagePreference == "japanese" &&
                     e.favoriteCategoryId == "DOGS" &&
+                    e.colorSchemePreference == "light" &&
                     e.updateUserId == USER_ID
         })
         affected == 1

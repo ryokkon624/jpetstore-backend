@@ -20,6 +20,7 @@ public class AccountEditCustomEntity {
   private String country;
   private String languagePreference;
   private String favoriteCategoryId;
+  private String colorSchemePreference;
   private long version;
 
   public String getFirstName() {
@@ -116,6 +117,14 @@ public class AccountEditCustomEntity {
 
   public void setFavoriteCategoryId(String favoriteCategoryId) {
     this.favoriteCategoryId = favoriteCategoryId;
+  }
+
+  public String getColorSchemePreference() {
+    return colorSchemePreference;
+  }
+
+  public void setColorSchemePreference(String colorSchemePreference) {
+    this.colorSchemePreference = colorSchemePreference;
   }
 
   public long getVersion() {

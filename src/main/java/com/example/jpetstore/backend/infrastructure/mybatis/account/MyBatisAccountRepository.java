@@ -5,8 +5,10 @@ import com.example.jpetstore.backend.domain.account.AccountEditDetail;
 import com.example.jpetstore.backend.domain.account.AccountRepository;
 import com.example.jpetstore.backend.domain.account.AccountUpdate;
 import com.example.jpetstore.backend.domain.account.NewAccountRegistration;
+import com.example.jpetstore.backend.domain.account.UserPreferences;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountContactCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountEditCustomEntity;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountPreferencesCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountRegistrationCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AccountUpdateCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileRegistrationCustomEntity;
@@ -15,6 +17,7 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.Signon
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonUpdateCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountEditCustomMapper;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountPreferencesCustomMapper;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountRegistrationCustomMapper;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.SignonCustomMapper;
 import java.util.Optional;
@@ -42,16 +45,19 @@ public class MyBatisAccountRepository implements AccountRepository {
   private final AccountContactCustomMapper accountContactCustomMapper;
   private final AccountRegistrationCustomMapper accountRegistrationCustomMapper;
   private final AccountEditCustomMapper accountEditCustomMapper;
+  private final AccountPreferencesCustomMapper accountPreferencesCustomMapper;
   private final SignonCustomMapper signonCustomMapper;
 
   public MyBatisAccountRepository(
       AccountContactCustomMapper accountContactCustomMapper,
       AccountRegistrationCustomMapper accountRegistrationCustomMapper,
       AccountEditCustomMapper accountEditCustomMapper,
+      AccountPreferencesCustomMapper accountPreferencesCustomMapper,
       SignonCustomMapper signonCustomMapper) {
     this.accountContactCustomMapper = accountContactCustomMapper;
     this.accountRegistrationCustomMapper = accountRegistrationCustomMapper;
     this.accountEditCustomMapper = accountEditCustomMapper;
+    this.accountPreferencesCustomMapper = accountPreferencesCustomMapper;
     this.signonCustomMapper = signonCustomMapper;
   }
 
@@ -86,6 +92,12 @@ public class MyBatisAccountRepository implements AccountRepository {
     }
     accountEditCustomMapper.updateProfile(toProfileUpdateEntity(update));
     return affected;
+  }
+
+  @Override
+  public Optional<UserPreferences> findPreferencesByUserId(Long userId) {
+    AccountPreferencesCustomEntity entity = accountPreferencesCustomMapper.findByUserId(userId);
+    return Optional.ofNullable(entity).map(this::toUserPreferences);
   }
 
   @Override
@@ -170,7 +182,12 @@ public class MyBatisAccountRepository implements AccountRepository {
         entity.getCountry(),
         entity.getLanguagePreference(),
         entity.getFavoriteCategoryId(),
+        entity.getColorSchemePreference(),
         entity.getVersion());
+  }
+
+  private UserPreferences toUserPreferences(AccountPreferencesCustomEntity entity) {
+    return new UserPreferences(entity.getColorSchemePreference(), entity.getLanguagePreference());
   }
 
   private AccountUpdateCustomEntity toAccountUpdateEntity(AccountUpdate update) {
@@ -196,6 +213,7 @@ public class MyBatisAccountRepository implements AccountRepository {
     entity.setUserId(update.userId());
     entity.setLanguagePreference(update.languagePreference());
     entity.setFavoriteCategoryId(update.favoriteCategoryId());
+    entity.setColorSchemePreference(update.colorSchemePreference());
     entity.setUpdateUserId(update.userId());
     return entity;
   }

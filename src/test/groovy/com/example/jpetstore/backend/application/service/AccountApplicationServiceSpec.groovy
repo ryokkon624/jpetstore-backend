@@ -5,6 +5,7 @@ import com.example.jpetstore.backend.domain.account.AccountEditCommand
 import com.example.jpetstore.backend.domain.account.AccountRepository
 import com.example.jpetstore.backend.domain.account.AccountUpdate
 import com.example.jpetstore.backend.domain.account.PasswordChangeCommand
+import com.example.jpetstore.backend.domain.account.UserPreferences
 import com.example.jpetstore.backend.domain.exception.InvalidCurrentPasswordException
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException
@@ -89,11 +90,33 @@ class AccountApplicationServiceSpec extends Specification {
         0 * accountRepository.findContactByUserId(_)
     }
 
+    def "getPreferences: 引数のuserIdでaccountRepositoryを呼びUserPreferencesを返す(#36/#25・CurrentUserProvider不使用)"() {
+        when:
+        def result = service.getPreferences(USER_ID)
+
+        then:
+        1 * accountRepository.findPreferencesByUserId(USER_ID) >> Optional.of(new UserPreferences("dark", "japanese"))
+        result.colorSchemePreference() == "dark"
+        result.languagePreference() == "japanese"
+    }
+
+    def "getPreferences: repositoryがOptional.empty()(m_profile行なし)を返した場合は既定値(system/english)へフォールバックする(例外を投げない)"() {
+        given:
+        accountRepository.findPreferencesByUserId(USER_ID) >> Optional.empty()
+
+        when:
+        def result = service.getPreferences(USER_ID)
+
+        then:
+        result.colorSchemePreference() == "system"
+        result.languagePreference() == "english"
+    }
+
     private static com.example.jpetstore.backend.domain.account.AccountEditDetail editDetail(long version = 3L) {
         new com.example.jpetstore.backend.domain.account.AccountEditDetail(
                 "Taro", "Yamada", "taro@example.com", "555-0100",
                 "1 Test St", "Suite 2", "Testville", "CA", "90000", "USA",
-                "english", "FISH", version)
+                "english", "FISH", "dark", version)
     }
 
     def "getAccountForEdit: CurrentUserProviderのuserIdでfindEditDetailByUserIdを呼びversion込みで返す(E3)"() {
@@ -105,6 +128,7 @@ class AccountApplicationServiceSpec extends Specification {
         result.firstName() == "Taro"
         result.languagePreference() == "english"
         result.favoriteCategoryId() == "FISH"
+        result.colorSchemePreference() == "dark"
         result.version() == 3L
     }
 
@@ -123,7 +147,7 @@ class AccountApplicationServiceSpec extends Specification {
         new AccountEditCommand(
                 expectedVersion, "Taro", "Yamada", "taro2@example.com", "555-0199",
                 "2 New St", null, "Newtown", "NY", "10001", "USA",
-                "japanese", "DOGS")
+                "japanese", "DOGS", "light")
     }
 
     def "updateAccount: CurrentUserProvider起点のuserIdをAccountUpdateへ渡す(AC1本人固定・usernameをクライアントから受けない)"() {
@@ -145,7 +169,8 @@ class AccountApplicationServiceSpec extends Specification {
                     u.postalCode() == "10001" &&
                     u.country() == "USA" &&
                     u.languagePreference() == "japanese" &&
-                    u.favoriteCategoryId() == "DOGS"
+                    u.favoriteCategoryId() == "DOGS" &&
+                    u.colorSchemePreference() == "light"
         }) >> 1
     }
 
@@ -162,6 +187,7 @@ class AccountApplicationServiceSpec extends Specification {
         result.email() == "taro2@example.com"
         result.languagePreference() == "japanese"
         result.favoriteCategoryId() == "DOGS"
+        result.colorSchemePreference() == "light"
         0 * accountRepository.findEditDetailByUserId(_)
     }
 

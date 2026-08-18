@@ -57,6 +57,17 @@ public interface AccountRepository {
   int updateAccount(AccountUpdate update);
 
   /**
+   * 指定 {@code userId} のテーマ配色/言語設定を取得する（{@code m_profile} 単体の軽量SELECT・#36/#25）。
+   *
+   * <p>{@link #findEditDetailByUserId} と異なり {@code m_account} とのJOINやversionを伴わない。{@code
+   * /api/auth/login}/{@code /api/auth/me} の再水和専用（{@code AccountApplicationService#getPreferences}
+   * が呼び出し元）。
+   *
+   * @return 該当する {@code m_profile} 行が無ければ {@code Optional.empty()}（呼び出し元が既定値へフォールバックする）
+   */
+  Optional<UserPreferences> findPreferencesByUserId(Long userId);
+
+  /**
    * 指定 {@code userId} の現在パスワードハッシュを取得する（#15 AC1・現在PW再認証用）。
    *
    * @return 該当行が無ければ {@code Optional.empty()}
