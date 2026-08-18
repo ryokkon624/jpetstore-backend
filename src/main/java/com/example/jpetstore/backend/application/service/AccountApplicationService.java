@@ -5,9 +5,14 @@ import com.example.jpetstore.backend.domain.account.AccountEditCommand;
 import com.example.jpetstore.backend.domain.account.AccountEditDetail;
 import com.example.jpetstore.backend.domain.account.AccountRepository;
 import com.example.jpetstore.backend.domain.account.AccountUpdate;
+import com.example.jpetstore.backend.domain.account.PasswordChangeCommand;
 import com.example.jpetstore.backend.domain.concurrency.AffectedRows;
+import com.example.jpetstore.backend.domain.exception.InvalidCurrentPasswordException;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
+import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +37,18 @@ public class AccountApplicationService {
 
   private final AccountRepository accountRepository;
   private final CurrentUserProvider currentUserProvider;
+  private final PasswordEncoder passwordEncoder;
+  private final AuthApplicationService authApplicationService;
 
   public AccountApplicationService(
-      AccountRepository accountRepository, CurrentUserProvider currentUserProvider) {
+      AccountRepository accountRepository,
+      CurrentUserProvider currentUserProvider,
+      PasswordEncoder passwordEncoder,
+      AuthApplicationService authApplicationService) {
     this.accountRepository = accountRepository;
     this.currentUserProvider = currentUserProvider;
+    this.passwordEncoder = passwordEncoder;
+    this.authApplicationService = authApplicationService;
   }
 
   /**
@@ -117,5 +129,36 @@ public class AccountApplicationService {
         command.languagePreference(),
         command.favoriteCategoryId(),
         command.expectedVersion() + 1);
+  }
+
+  /**
+   * 現在の認証プリンシパル自身のパスワードを変更する（#15 AC1〜AC2）。
+   *
+   * <p>userId起点で現在パスワードハッシュを取得し（{@link AccountRepository#findPasswordHashByUserId}）、{@link
+   * PasswordEncoder#matches}で現在PWを再認証する（AC1）。不一致は{@link InvalidCurrentPasswordException}
+   * （呼び出し元の{@code GlobalExceptionHandler}が422へ正規化）。成功時は新PWをbcryptエンコードして{@code
+   * m_signon.password_hash}を更新し（AC2）、{@link AuthApplicationService#issueTokensFor}で現在セッションの
+   * トークンをローテートする（Q3・#13登録の自動ログインと同じメソッドを再利用）。
+   *
+   * @throws org.springframework.security.access.AccessDeniedException 未認証
+   * @throws ResourceNotFoundException 認証プリンシパルに対応する {@code m_signon} 行が存在しない場合
+   * @throws InvalidCurrentPasswordException {@code command.currentPassword()} が格納ハッシュと一致しない場合
+   */
+  @Transactional
+  public void changePassword(PasswordChangeCommand command, HttpServletResponse response) {
+    AuthenticatedUser user = currentUserProvider.requireCurrentUser();
+    String storedHash =
+        accountRepository
+            .findPasswordHashByUserId(user.userId())
+            .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
+
+    if (!passwordEncoder.matches(command.currentPassword(), storedHash)) {
+      throw new InvalidCurrentPasswordException();
+    }
+
+    String newHash = passwordEncoder.encode(command.newPassword());
+    accountRepository.updatePassword(user.userId(), newHash);
+
+    authApplicationService.issueTokensFor(user, response);
   }
 }

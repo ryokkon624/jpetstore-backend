@@ -12,9 +12,11 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.Accoun
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileRegistrationCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileUpdateCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonRegistrationCustomEntity;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonUpdateCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountEditCustomMapper;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountRegistrationCustomMapper;
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.SignonCustomMapper;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
@@ -40,14 +42,17 @@ public class MyBatisAccountRepository implements AccountRepository {
   private final AccountContactCustomMapper accountContactCustomMapper;
   private final AccountRegistrationCustomMapper accountRegistrationCustomMapper;
   private final AccountEditCustomMapper accountEditCustomMapper;
+  private final SignonCustomMapper signonCustomMapper;
 
   public MyBatisAccountRepository(
       AccountContactCustomMapper accountContactCustomMapper,
       AccountRegistrationCustomMapper accountRegistrationCustomMapper,
-      AccountEditCustomMapper accountEditCustomMapper) {
+      AccountEditCustomMapper accountEditCustomMapper,
+      SignonCustomMapper signonCustomMapper) {
     this.accountContactCustomMapper = accountContactCustomMapper;
     this.accountRegistrationCustomMapper = accountRegistrationCustomMapper;
     this.accountEditCustomMapper = accountEditCustomMapper;
+    this.signonCustomMapper = signonCustomMapper;
   }
 
   @Override
@@ -81,6 +86,20 @@ public class MyBatisAccountRepository implements AccountRepository {
     }
     accountEditCustomMapper.updateProfile(toProfileUpdateEntity(update));
     return affected;
+  }
+
+  @Override
+  public Optional<String> findPasswordHashByUserId(Long userId) {
+    return Optional.ofNullable(signonCustomMapper.findPasswordHashByUserId(userId));
+  }
+
+  @Override
+  public int updatePassword(Long userId, String newPasswordHash) {
+    SignonUpdateCustomEntity entity = new SignonUpdateCustomEntity();
+    entity.setUserId(userId);
+    entity.setPasswordHash(newPasswordHash);
+    entity.setUpdateUserId(userId);
+    return signonCustomMapper.updatePassword(entity);
   }
 
   private AccountContact toAccountContact(AccountContactCustomEntity entity) {
