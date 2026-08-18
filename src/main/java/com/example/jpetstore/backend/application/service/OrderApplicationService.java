@@ -167,9 +167,11 @@ public class OrderApplicationService {
   }
 
   private BigDecimal calculateTotal(List<CartItem> cartItems) {
+    // #31: メソッド参照(BigDecimal::add)はJDTのNull type safety警告のfalse-positive源のため
+    // ラムダ化して解消する（挙動は不変）。
     return cartItems.stream()
         .map(item -> item.listPrice().multiply(BigDecimal.valueOf(item.quantity())))
-        .reduce(BigDecimal.ZERO, BigDecimal::add);
+        .reduce(BigDecimal.ZERO, (a, b) -> a.add(b));
   }
 
   /** item_id昇順（{@code findByCartId} の順序）でガード減算→明細INSERTを行う（arch §4.1・固定順でデッドロック回避）。 */

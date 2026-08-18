@@ -50,7 +50,9 @@ public final class Cart {
   }
 
   public BigDecimal subtotal() {
-    return items.stream().map(CartItem::lineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+    // #31: メソッド参照(CartItem::lineTotal・BigDecimal::add)はJDTのNull type safety警告の
+    // false-positive源のためラムダ化して解消する（挙動は不変）。
+    return items.stream().map(item -> item.lineTotal()).reduce(BigDecimal.ZERO, (a, b) -> a.add(b));
   }
 
   /**

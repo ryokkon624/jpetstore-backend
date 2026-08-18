@@ -150,8 +150,9 @@ public class CartApplicationService {
   private static Map<String, Integer> coalesce(List<CartLine> clientLines) {
     Map<String, Integer> coalesced = new LinkedHashMap<>();
     for (CartLine clientLine : clientLines) {
-      coalesced.merge(
-          clientLine.itemId(), clientLine.quantity(), CartApplicationService::addSaturating);
+      // #31: メソッド参照(::addSaturating)はJDT のnull型推論でfalse-positiveのNull type
+      // safety警告を出すため、ラムダ化して解消する（挙動は不変）。
+      coalesced.merge(clientLine.itemId(), clientLine.quantity(), (a, b) -> addSaturating(a, b));
     }
     return coalesced;
   }
