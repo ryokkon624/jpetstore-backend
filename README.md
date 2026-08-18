@@ -77,6 +77,20 @@ curl http://localhost:8080/api/ping   # => {"status":"ok"}
 # Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 
+## ローカルログイン（動作確認用）
+
+`jpetstore-database` の標準ローカル手順（`flywayClean → flywayMigrate → seedDevData`）を実行すると、`flyway/sql-test`（開発・テスト用データ）の `demo_user` が投入され、そのままログイン動作確認ができる。
+
+| 項目 | 値 |
+| --- | --- |
+| ユーザー名 | `demo_user` |
+| パスワード | `Sprint3-DemoLogin!26` |
+
+- **ローカル/開発専用**。`flyway/sql-test`（`R__test_user.sql`）由来で、本番相当シード（`flyway/sql`）には含まれない。`password_hash` は上記平文を実際に bcrypt で `encode()` した値をそのまま投入している（捏造リテラルではない）。
+- `seedDevData` を実行していない DB には投入されないため、その場合は `POST /api/register`（#13 ユーザー登録）で新規アカウントを作成してログインすることもできる。
+- パスワード変更（#15）の動作確認では、現在パスワードとして上記を入力する（誤り時は `422`、成功時はセッションのトークンがローテートされる）。
+- なお `ac_neg1_user`（JOIN 検証用フィクスチャ）はダミー bcrypt ハッシュのためログインには使えない。
+
 ## トラブルシューティング
 
 ### IDE が依存の版更新後も古いシグネチャで警告を出す（例: jjwt 0.11 系の API で lint エラー）
