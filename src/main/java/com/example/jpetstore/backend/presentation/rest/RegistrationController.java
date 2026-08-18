@@ -3,10 +3,13 @@ package com.example.jpetstore.backend.presentation.rest;
 import com.example.jpetstore.backend.application.service.RegistrationApplicationService;
 import com.example.jpetstore.backend.domain.account.RegisterAccountCommand;
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
+import com.example.jpetstore.backend.presentation.rest.validation.StrongPassword;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -48,25 +51,27 @@ public class RegistrationController {
   }
 
   /**
-   * 登録リクエストDTO（Controller層に閉じる・SBD-2アローリスト）。必須項目非空のみ検証する（email形式・PW強度は#17委譲・ 計画フェーズ確定）。{@link
-   * #languagePreference}/{@link #favoriteCategoryId} は任意（登録フォームに入力欄なし・E5）。
+   * 登録リクエストDTO（Controller層に閉じる・SBD-2アローリスト）。#17 AC1/AC2（Q2確定）: email形式・各項目の最大長は{@code
+   * m_account}/{@code m_profile}のDBカラム幅に整合させる（DB切り詰めエラー防止）。PW強度は{@link StrongPassword}（Q1確定・ {@code
+   * PasswordChangeRequest#newPassword}と共有の1本化制約）。{@link #languagePreference}/{@link
+   * #favoriteCategoryId} は任意（登録フォームに入力欄なし・E5）。
    */
   public record RegisterRequest(
-      @NotBlank String username,
-      @NotBlank String password,
+      @NotBlank @Size(max = 80) String username,
+      @StrongPassword String password,
       @NotBlank String repeatedPassword,
-      @NotBlank String email,
-      @NotBlank String firstName,
-      @NotBlank String lastName,
-      @NotBlank String address1,
-      String address2,
-      @NotBlank String city,
-      @NotBlank String state,
-      @NotBlank String postalCode,
-      @NotBlank String country,
-      @NotBlank String phone,
-      String languagePreference,
-      String favoriteCategoryId) {
+      @NotBlank @Email @Size(max = 80) String email,
+      @NotBlank @Size(max = 80) String firstName,
+      @NotBlank @Size(max = 80) String lastName,
+      @NotBlank @Size(max = 80) String address1,
+      @Size(max = 40) String address2,
+      @NotBlank @Size(max = 80) String city,
+      @NotBlank @Size(max = 80) String state,
+      @NotBlank @Size(max = 20) String postalCode,
+      @NotBlank @Size(max = 20) String country,
+      @NotBlank @Size(max = 80) String phone,
+      @Size(max = 80) String languagePreference,
+      @Size(max = 10) String favoriteCategoryId) {
 
     RegisterAccountCommand toCommand() {
       return new RegisterAccountCommand(

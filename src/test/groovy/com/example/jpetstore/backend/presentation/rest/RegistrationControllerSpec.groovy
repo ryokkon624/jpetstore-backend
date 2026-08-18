@@ -192,6 +192,62 @@ class RegistrationControllerSpec extends IntegrationTestBase {
                 .andExpect(status().isBadRequest())
     }
 
+    def "AC-neg1(#17 Q2): 不正なemail形式は400になり、アカウントは作成されない"() {
+        given:
+        def username = "register_test_bademail"
+        def body = """
+        {
+          "username": "${username}", "password": "Correct#Passw0rd!",
+          "repeatedPassword": "Correct#Passw0rd!", "email": "not-an-email",
+          "firstName": "Taro", "lastName": "Yamada", "address1": "1 Test St", "address2": "Suite 2",
+          "city": "Testville", "state": "CA", "postalCode": "90000", "country": "USA", "phone": "555-0100"
+        }
+        """
+
+        expect:
+        attemptRegister(body, "198.51.100.40").andExpect(status().isBadRequest())
+
+        and:
+        jdbcTemplate.queryForObject("SELECT COUNT(*) FROM m_account WHERE username = ?", Integer, username) == 0
+    }
+
+    def "AC-neg1(#17 Q2): usernameがDBカラム幅(80)を超えると400になる"() {
+        given:
+        def longUsername = "u" * 81
+        def body = """
+        {
+          "username": "${longUsername}", "password": "Correct#Passw0rd!",
+          "repeatedPassword": "Correct#Passw0rd!", "email": "register_test_longuser@example.com",
+          "firstName": "Taro", "lastName": "Yamada", "address1": "1 Test St", "address2": "Suite 2",
+          "city": "Testville", "state": "CA", "postalCode": "90000", "country": "USA", "phone": "555-0100"
+        }
+        """
+
+        expect:
+        attemptRegister(body, "198.51.100.41").andExpect(status().isBadRequest())
+    }
+
+    def "AC-neg1(#17 Q1): 弱いパスワード(文字種1種のみ)は400になり、アカウントは作成されない"() {
+        given:
+        def username = "register_test_weakpw"
+
+        expect:
+        attemptRegister(registerBody(username, "alllowercase", "alllowercase"), "198.51.100.42")
+                .andExpect(status().isBadRequest())
+
+        and:
+        jdbcTemplate.queryForObject("SELECT COUNT(*) FROM m_account WHERE username = ?", Integer, username) == 0
+    }
+
+    def "AC-neg1(#17 Q1): パスワードが8文字未満は400になる"() {
+        given:
+        def username = "register_test_shortpw"
+
+        expect:
+        attemptRegister(registerBody(username, "Ab1!", "Ab1!"), "198.51.100.43")
+                .andExpect(status().isBadRequest())
+    }
+
     def "AC-neg2(SBD-6): 同一IPからの登録試行が閾値を超えると429になる(列挙/総当り対策)"() {
         given:
         def clientIp = "198.51.100.20"
