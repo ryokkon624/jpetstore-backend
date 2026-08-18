@@ -15,6 +15,7 @@
                a.address1 AS address1, a.address2 AS address2, a.city AS city, a.state AS state,
                a.postal_code AS postalCode, a.country AS country,
                p.language_preference AS languagePreference, p.favorite_category_id AS favoriteCategoryId,
+               p.color_scheme_preference AS colorSchemePreference,
                a.version AS version
           FROM m_account a
           JOIN m_profile p ON p.user_id = a.user_id
@@ -36,6 +37,7 @@
             parameterType="com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileUpdateCustomEntity">
         UPDATE m_profile
            SET language_preference = #{languagePreference}, favorite_category_id = #{favoriteCategoryId},
+               color_scheme_preference = #{colorSchemePreference},
                update_user_id = #{updateUserId}, update_program = #{updateProgram}
          WHERE user_id = #{userId}
     </update>

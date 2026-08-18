@@ -1,6 +1,8 @@
 package com.example.jpetstore.backend.presentation.rest;
 
+import com.example.jpetstore.backend.application.service.AccountApplicationService;
 import com.example.jpetstore.backend.application.service.AuthApplicationService;
+import com.example.jpetstore.backend.domain.account.UserPreferences;
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,17 +25,24 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>login/logout はいずれも状態変更（AC4・SBD-3）のため CSRF 前提の非冪等 POST のみで受理する（{@code SecurityConfig} の CSRF
  * 設定が全体に適用される）。GET では受理しない（AC-neg2）。
+ *
+ * <p>#36/#25: {@link #login}/{@link #me} は {@link LoginResponse} にテーマ配色/言語設定を含めて返す（DB権威の
+ * 再水和・Q2）。1回のDTO拡張で両エンドポイントに効く（{@code AuthController.LoginResponse} を共有するため）。
  */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
   private final AuthApplicationService authApplicationService;
+  private final AccountApplicationService accountApplicationService;
   private final CurrentUserProvider currentUserProvider;
 
   public AuthController(
-      AuthApplicationService authApplicationService, CurrentUserProvider currentUserProvider) {
+      AuthApplicationService authApplicationService,
+      AccountApplicationService accountApplicationService,
+      CurrentUserProvider currentUserProvider) {
     this.authApplicationService = authApplicationService;
+    this.accountApplicationService = accountApplicationService;
     this.currentUserProvider = currentUserProvider;
   }
 
@@ -48,7 +57,10 @@ public class AuthController {
       @Valid @RequestBody LoginRequest request, HttpServletResponse response) {
     AuthenticatedUser user =
         authApplicationService.login(request.username(), request.password(), response);
-    return ResponseEntity.ok(new LoginResponse(user.username(), user.roles()));
+    // #36/#25 A2: login()実行中はSecurityContextが未populated（stateless JWTの制約）のため
+    // currentUserProviderは使えない。login()が返したuserIdを明示的に渡してgetPreferencesを呼ぶ。
+    UserPreferences preferences = accountApplicationService.getPreferences(user.userId());
+    return ResponseEntity.ok(LoginResponse.of(user, preferences));
   }
 
   /** access/refresh の両 Cookie を即時失効させる（AC2）。credential 不要（Cookie の有無に関わらず成功する）。 */
@@ -76,12 +88,31 @@ public class AuthController {
   @GetMapping("/me")
   public ResponseEntity<LoginResponse> me() {
     AuthenticatedUser user = currentUserProvider.requireCurrentUser();
-    return ResponseEntity.ok(new LoginResponse(user.username(), user.roles()));
+    UserPreferences preferences = accountApplicationService.getPreferences(user.userId());
+    return ResponseEntity.ok(LoginResponse.of(user, preferences));
   }
 
   /** ログイン要求の DTO（Controller 層に閉じる）。資格情報は body のみで受理する（AC-neg2・GET/query 不可）。 */
   public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
 
-  /** ログイン成功時の応答 DTO。httpOnly Cookie は JS から読めないため、SPA 側の表示用に最小限の識別情報のみ返す。 */
-  public record LoginResponse(String username, List<String> roles) {}
+  /**
+   * ログイン成功時の応答 DTO。httpOnly Cookie は JS から読めないため、SPA 側の表示用に最小限の識別情報のみ返す。
+   *
+   * <p>#36/#25: {@link #colorSchemePreference}（'system'/'light'/'dark'・pass-through）/{@link
+   * #languagePreference}（'english'/'japanese'・DB値そのまま。frontendの'en'/'ja'への変換はAPI境界=frontend側で行う）を
+   * 追加し、{@code /api/auth/login}/{@code /api/auth/me} 共通のDB権威再水和に使う（Q2）。
+   */
+  public record LoginResponse(
+      String username,
+      List<String> roles,
+      String colorSchemePreference,
+      String languagePreference) {
+    static LoginResponse of(AuthenticatedUser user, UserPreferences preferences) {
+      return new LoginResponse(
+          user.username(),
+          user.roles(),
+          preferences.colorSchemePreference(),
+          preferences.languagePreference());
+    }
+  }
 }

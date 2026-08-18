@@ -22,4 +22,5 @@ public record AccountUpdate(
     String postalCode,
     String country,
     String languagePreference,
-    String favoriteCategoryId) {}
+    String favoriteCategoryId,
+    String colorSchemePreference) {}

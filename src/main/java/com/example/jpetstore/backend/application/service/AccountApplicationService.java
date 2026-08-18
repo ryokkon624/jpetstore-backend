@@ -6,6 +6,7 @@ import com.example.jpetstore.backend.domain.account.AccountEditDetail;
 import com.example.jpetstore.backend.domain.account.AccountRepository;
 import com.example.jpetstore.backend.domain.account.AccountUpdate;
 import com.example.jpetstore.backend.domain.account.PasswordChangeCommand;
+import com.example.jpetstore.backend.domain.account.UserPreferences;
 import com.example.jpetstore.backend.domain.concurrency.AffectedRows;
 import com.example.jpetstore.backend.domain.exception.InvalidCurrentPasswordException;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 自分自身のアカウント/プロフィールを扱うユースケース（#7 read-only・#14 編集）。
+ * 自分自身のアカウント/プロフィールを扱うユースケース（#7 read-only・#14 編集・#36/#25 設定再水和）。
  *
  * <p>対象は常に呼び出し元（{@link CurrentUserProvider}）自身の {@code m_account}/{@code m_profile} 行のみ。
  * URL/リクエストにuserId等を取らないためIDOR面はゼロ（{@code CartApplicationService} と同じ思想。#14 AC-neg1・{@code
@@ -31,9 +32,22 @@ import org.springframework.transaction.annotation.Transactional;
  * CurrentUserProvider}起点でサーバ側が解決した値のみを使う（クライアントの{@code username}等は
  * 一切受け取らない・AC1）。userid/status/version/WHO列はサーバ権威のため{@link AccountEditCommand}に
  * フィールド自体を持たない（AC-neg2・型で構造的に担保）。
+ *
+ * <p>#36/#25: {@link #getPreferences(Long)} のみ他メソッドと異なり {@link CurrentUserProvider} を使わず引数で明示的に
+ * {@code userId} を受け取る（{@code AuthController#login} 実行中は {@code SecurityContext}
+ * が未populatedのため使用不可・stateless JWTの制約）。
  */
 @Service
 public class AccountApplicationService {
+
+  /**
+   * {@link #getPreferences} が {@code m_profile} 行を見つけられなかった場合（JWTのuserIdに対応する行が存在しない・
+   * テスト用に発行されたJWT等）のフォールバック既定値。{@code RegistrationApplicationService}の登録時既定値 （{@code
+   * english}）・{@code V00_000_013}の{@code color_scheme_preference}列既定値（{@code system}）と同値。
+   */
+  private static final String DEFAULT_COLOR_SCHEME_PREFERENCE = "system";
+
+  private static final String DEFAULT_LANGUAGE_PREFERENCE = "english";
 
   private final AccountRepository accountRepository;
   private final CurrentUserProvider currentUserProvider;
@@ -81,6 +95,24 @@ public class AccountApplicationService {
   }
 
   /**
+   * 指定 {@code userId} のテーマ配色/言語設定を返す（#36/#25）。
+   *
+   * <p>{@code /api/auth/login}/{@code /api/auth/me} 共通の再水和用。{@link #getMyContact}/{@link
+   * #getAccountForEdit} と異なり {@link CurrentUserProvider} には依存せず、呼び出し元が解決した {@code userId} を
+   * 明示的に受け取る（login()実行中は{@code SecurityContext}が未populatedのため{@code
+   * CurrentUserProvider}が使えない・stateless JWTの制約）。{@code m_profile}行が見つからない場合（テスト用に
+   * 発行されたJWT等）は例外を投げず既定値へフォールバックする（{@code AuthMeSpec}等の既存契約を壊さない）。
+   */
+  @Transactional(readOnly = true)
+  public UserPreferences getPreferences(Long userId) {
+    return accountRepository
+        .findPreferencesByUserId(userId)
+        .orElseGet(
+            () ->
+                new UserPreferences(DEFAULT_COLOR_SCHEME_PREFERENCE, DEFAULT_LANGUAGE_PREFERENCE));
+  }
+
+  /**
    * 現在の認証プリンシパル自身のアカウント/プロフィールを更新する（#14 AC1〜AC3）。
    *
    * <p>更新後の {@link AccountEditDetail} は再読取り（追加SELECT）せず、{@code command} が持つ入力値と{@code
@@ -110,7 +142,8 @@ public class AccountApplicationService {
             command.postalCode(),
             command.country(),
             command.languagePreference(),
-            command.favoriteCategoryId());
+            command.favoriteCategoryId(),
+            command.colorSchemePreference());
 
     int affected = accountRepository.updateAccount(update);
     AffectedRows.requireUpdated(affected);
@@ -128,6 +161,7 @@ public class AccountApplicationService {
         command.country(),
         command.languagePreference(),
         command.favoriteCategoryId(),
+        command.colorSchemePreference(),
         command.expectedVersion() + 1);
   }
 

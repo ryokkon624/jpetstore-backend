@@ -93,13 +93,14 @@ class AccountEditControllerSpec extends IntegrationTestBase {
         id
     }
 
-    private static String updateBody(long version, String firstName = "Jiro") {
+    private static String updateBody(long version, String firstName = "Jiro", String colorSchemePreference = "dark") {
         """
         {
           "version": ${version}, "firstName": "${firstName}", "lastName": "Suzuki",
           "email": "jiro@example.com", "phone": "555-0199", "address1": "2 New St", "address2": null,
           "city": "Newtown", "state": "NY", "postalCode": "10001", "country": "USA",
-          "languagePreference": "japanese", "favoriteCategoryId": "DOGS"
+          "languagePreference": "japanese", "favoriteCategoryId": "DOGS",
+          "colorSchemePreference": "${colorSchemePreference}"
         }
         """
     }
@@ -112,6 +113,7 @@ class AccountEditControllerSpec extends IntegrationTestBase {
                 .andExpect(jsonPath('$.lastName').value("EditTestUser"))
                 .andExpect(jsonPath('$.languagePreference').value("english"))
                 .andExpect(jsonPath('$.favoriteCategoryId').value("FISH"))
+                .andExpect(jsonPath('$.colorSchemePreference').value("system"))
                 .andExpect(jsonPath('$.version').value(0))
     }
 
@@ -131,6 +133,7 @@ class AccountEditControllerSpec extends IntegrationTestBase {
                 .andExpect(jsonPath('$.email').value("jiro@example.com"))
                 .andExpect(jsonPath('$.languagePreference').value("japanese"))
                 .andExpect(jsonPath('$.favoriteCategoryId').value("DOGS"))
+                .andExpect(jsonPath('$.colorSchemePreference').value("dark"))
                 .andExpect(jsonPath('$.version').value(1))
 
         and: "DBにも反映される(m_account/m_profileとも)"
@@ -138,6 +141,8 @@ class AccountEditControllerSpec extends IntegrationTestBase {
         jdbcTemplate.queryForObject("SELECT version FROM m_account WHERE user_id = ?", Long, userId) == 1L
         jdbcTemplate.queryForObject(
                 "SELECT language_preference FROM m_profile WHERE user_id = ?", String, userId) == "japanese"
+        jdbcTemplate.queryForObject(
+                "SELECT color_scheme_preference FROM m_profile WHERE user_id = ?", String, userId) == "dark"
     }
 
     def "AC-neg1(SBD-1): 他人のuserIdを注入してもリクエストは常に自分自身のみを更新する"() {
@@ -163,7 +168,7 @@ class AccountEditControllerSpec extends IntegrationTestBase {
           "version": 0, "firstName": "Jiro", "lastName": "Suzuki", "email": "jiro@example.com",
           "phone": "555-0199", "address1": "2 New St", "address2": null, "city": "Newtown",
           "state": "NY", "postalCode": "10001", "country": "USA",
-          "languagePreference": "japanese", "favoriteCategoryId": "DOGS",
+          "languagePreference": "japanese", "favoriteCategoryId": "DOGS", "colorSchemePreference": "dark",
           "userId": 999999, "username": "hijacked", "status": "CLOSED"
         }
         '''
@@ -271,5 +276,20 @@ class AccountEditControllerSpec extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
                 .andExpect(status().isBadRequest())
+    }
+
+    def "AC7(#36): colorSchemePreferenceが'system'/'light'/'dark'のいずれでもないと400になり、更新されない"() {
+        given:
+        def body = updateBody(0, "Jiro", "purple")
+
+        expect:
+        mockMvc.perform(put("/api/account").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .andExpect(status().isBadRequest())
+
+        and:
+        jdbcTemplate.queryForObject(
+                "SELECT color_scheme_preference FROM m_profile WHERE user_id = ?", String, userId) == "system"
     }
 }

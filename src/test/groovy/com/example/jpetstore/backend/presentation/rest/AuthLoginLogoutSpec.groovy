@@ -53,6 +53,9 @@ class AuthLoginLogoutSpec extends IntegrationTestBase {
         // ロック閾値到達によって後続テストの「正しいpasswordで200」が意図せず401化する(テスト間の状態汚染)。
         jdbcTemplate.update("DELETE FROM t_login_attempt")
         jdbcTemplate.update("DELETE FROM m_signon WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
+        // #36/#25: 一部テストがm_profileへ直接INSERTするため、m_account削除前(FK ON DELETE RESTRICT)に
+        // 必ず先に掃除する(次テストへの汚染防止・fk_m_profile_user_id違反回避)。
+        jdbcTemplate.update("DELETE FROM m_profile WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
         jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", USERNAME)
         insertLoginTestUser()
     }
@@ -93,6 +96,10 @@ class AuthLoginLogoutSpec extends IntegrationTestBase {
                 .content(loginBody(USERNAME, RAW_PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath('$.username').value(USERNAME))
+                // #36/#25: このユーザーはm_profile行を持たないフィクスチャのため、
+                // AccountApplicationService#getPreferencesの既定値フォールバック(system/english)を確認する。
+                .andExpect(jsonPath('$.colorSchemePreference').value("system"))
+                .andExpect(jsonPath('$.languagePreference').value("english"))
                 .andReturn()
 
         then:
@@ -102,6 +109,26 @@ class AuthLoginLogoutSpec extends IntegrationTestBase {
         refreshToken != null
         jwtService.parseAccessToken(accessToken).map { it.username() }.orElse(null) == USERNAME
         jwtService.parseRefreshToken(refreshToken).map { it.username() }.orElse(null) == USERNAME
+    }
+
+    def "AC6(#36)/AC7(#25): m_profileにDB保存済みのテーマ/言語設定があればログイン応答へそのまま含まれる(A2・login()実行中のcurrentUserProvider不使用)"() {
+        given: "m_profileへdark/japaneseを保存しておく"
+        Long userId = jdbcTemplate.queryForObject("SELECT user_id FROM m_account WHERE username = ?", Long, USERNAME)
+        jdbcTemplate.update(
+                """
+                INSERT INTO m_profile (user_id, language_preference, favorite_category_id, color_scheme_preference, create_program, update_program)
+                VALUES (?, 'japanese', NULL, 'dark', 'TEST_FIXTURE', 'TEST_FIXTURE')
+                """,
+                userId)
+
+        expect:
+        mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody(USERNAME, RAW_PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath('$.colorSchemePreference').value("dark"))
+                .andExpect(jsonPath('$.languagePreference').value("japanese"))
     }
 
     def "誤ったpasswordでログインすると401になる"() {

@@ -50,6 +50,10 @@ class AuthMeSpec extends IntegrationTestBase {
                 .andExpect(jsonPath('$.roles').isArray())
                 .andExpect(jsonPath('$.roles[0]').value("USER"))
                 .andExpect(jsonPath('$.roles[1]').value("ADMIN"))
+                // #36/#25: このuserIdはm_profile行を持たない(JWTのみのfixture)ため、
+                // AccountApplicationService#getPreferencesの既定値フォールバック(system/english)を確認する。
+                .andExpect(jsonPath('$.colorSchemePreference').value("system"))
+                .andExpect(jsonPath('$.languagePreference').value("english"))
     }
 
     def "未認証(Cookie無し)でGET /api/auth/meを叩くと401になる"() {

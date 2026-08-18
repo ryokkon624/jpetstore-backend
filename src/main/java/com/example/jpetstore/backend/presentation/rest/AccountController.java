@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -129,7 +130,9 @@ public class AccountController {
       @NotBlank @Size(max = 20) String postalCode,
       @NotBlank @Size(max = 20) String country,
       @NotBlank @Size(max = 80) String languagePreference,
-      @Size(max = 10) String favoriteCategoryId) {
+      @Size(max = 10) String favoriteCategoryId,
+      @NotBlank @Pattern(regexp = "^(system|light|dark)$") @Size(max = 20)
+          String colorSchemePreference) {
 
     AccountEditCommand toCommand() {
       return new AccountEditCommand(
@@ -145,7 +148,8 @@ public class AccountController {
           postalCode,
           country,
           languagePreference,
-          favoriteCategoryId);
+          favoriteCategoryId,
+          colorSchemePreference);
     }
   }
 
@@ -163,6 +167,7 @@ public class AccountController {
       String country,
       String languagePreference,
       String favoriteCategoryId,
+      String colorSchemePreference,
       long version) {
     static AccountEditResponse from(AccountEditDetail detail) {
       return new AccountEditResponse(
@@ -178,6 +183,7 @@ public class AccountController {
           detail.country(),
           detail.languagePreference(),
           detail.favoriteCategoryId(),
+          detail.colorSchemePreference(),
           detail.version());
     }
   }

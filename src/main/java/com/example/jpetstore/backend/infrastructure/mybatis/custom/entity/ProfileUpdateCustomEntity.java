@@ -14,6 +14,7 @@ public class ProfileUpdateCustomEntity {
   private Long userId;
   private String languagePreference;
   private String favoriteCategoryId;
+  private String colorSchemePreference;
   private Long updateUserId;
   private String updateProgram;
 
@@ -39,6 +40,14 @@ public class ProfileUpdateCustomEntity {
 
   public void setFavoriteCategoryId(String favoriteCategoryId) {
     this.favoriteCategoryId = favoriteCategoryId;
+  }
+
+  public String getColorSchemePreference() {
+    return colorSchemePreference;
+  }
+
+  public void setColorSchemePreference(String colorSchemePreference) {
+    this.colorSchemePreference = colorSchemePreference;
   }
 
   public Long getUpdateUserId() {
