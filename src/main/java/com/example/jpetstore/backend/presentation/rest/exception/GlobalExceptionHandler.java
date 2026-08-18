@@ -1,6 +1,7 @@
 package com.example.jpetstore.backend.presentation.rest.exception;
 
 import com.example.jpetstore.backend.domain.exception.InsufficientStockException;
+import com.example.jpetstore.backend.domain.exception.InvalidCurrentPasswordException;
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException;
 import com.example.jpetstore.backend.domain.exception.RegistrationRateLimitExceededException;
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException;
@@ -82,6 +83,19 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleRegistrationRateLimitExceeded(
       RegistrationRateLimitExceededException e, HttpServletRequest request) {
     return build(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", e.getMessage(), request);
+  }
+
+  /**
+   * パスワード変更時の現在パスワード誤り（#15 AC1）を422 Unprocessable Entityとして正規化する（計画フェーズ確定・三系統分離）。 弱いパスワード/不正入力（Bean
+   * Validation）＝400、真の未認証＝401、CSRF欠落＝403とはステータスを分ける（401はhttpClientのsilent refreshを
+   * 誤発火させ、403はCSRF欠落と衝突するため）。
+   */
+  @ExceptionHandler(InvalidCurrentPasswordException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCurrentPassword(
+      InvalidCurrentPasswordException e, HttpServletRequest request) {
+    // Spring Framework 7.0でHttpStatus.UNPROCESSABLE_ENTITYは非推奨化され、RFC 9110の呼称に合わせた
+    // UNPROCESSABLE_CONTENTへ改名された（値=422は不変）。
+    return build(HttpStatus.UNPROCESSABLE_CONTENT, "UNPROCESSABLE_ENTITY", e.getMessage(), request);
   }
 
   @ExceptionHandler(AccessDeniedException.class)

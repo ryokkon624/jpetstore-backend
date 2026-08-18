@@ -247,4 +247,29 @@ class AccountEditControllerSpec extends IntegrationTestBase {
                 .content(updateBody(0)))
                 .andExpect(status().isForbidden())
     }
+
+    def "AC-neg1(#17 Q2): 不正なemail形式は400になり、更新されない"() {
+        given:
+        def body = updateBody(0).toString().replace('"email": "jiro@example.com"', '"email": "not-an-email"')
+
+        expect:
+        mockMvc.perform(put("/api/account").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .andExpect(status().isBadRequest())
+
+        and:
+        jdbcTemplate.queryForObject("SELECT first_name FROM m_account WHERE user_id = ?", String, userId) == "Account"
+    }
+
+    def "AC-neg1(#17 Q2): firstNameがDBカラム幅(80)を超えると400になる"() {
+        given:
+        def body = updateBody(0, "x" * 81)
+
+        expect:
+        mockMvc.perform(put("/api/account").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+                .andExpect(status().isBadRequest())
+    }
 }

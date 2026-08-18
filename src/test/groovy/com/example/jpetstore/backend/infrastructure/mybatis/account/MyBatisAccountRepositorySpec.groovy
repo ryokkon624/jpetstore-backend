@@ -9,9 +9,11 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.Accoun
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileRegistrationCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.ProfileUpdateCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonRegistrationCustomEntity
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.SignonUpdateCustomEntity
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountContactCustomMapper
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountEditCustomMapper
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AccountRegistrationCustomMapper
+import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.SignonCustomMapper
 import spock.lang.Specification
 
 /**
@@ -30,9 +32,10 @@ class MyBatisAccountRepositorySpec extends Specification {
     AccountContactCustomMapper accountContactCustomMapper = Mock()
     AccountRegistrationCustomMapper accountRegistrationCustomMapper = Mock()
     AccountEditCustomMapper accountEditCustomMapper = Mock()
+    SignonCustomMapper signonCustomMapper = Mock()
 
     MyBatisAccountRepository repository = new MyBatisAccountRepository(
-            accountContactCustomMapper, accountRegistrationCustomMapper, accountEditCustomMapper)
+            accountContactCustomMapper, accountRegistrationCustomMapper, accountEditCustomMapper, signonCustomMapper)
 
     private static AccountContactCustomEntity contactEntity() {
         def e = new AccountContactCustomEntity()
@@ -218,5 +221,35 @@ class MyBatisAccountRepositorySpec extends Specification {
         1 * accountEditCustomMapper.updateAccount(_) >> 0
         0 * accountEditCustomMapper.updateProfile(_)
         affected == 0
+    }
+
+    def "findPasswordHashByUserId: mapperを1回呼びOptionalへラップして返す(#15)"() {
+        when:
+        def result = repository.findPasswordHashByUserId(USER_ID)
+
+        then:
+        1 * signonCustomMapper.findPasswordHashByUserId(USER_ID) >> "{bcrypt}stored-hash"
+        result.isPresent()
+        result.get() == "{bcrypt}stored-hash"
+    }
+
+    def "findPasswordHashByUserId: mapperがnullを返した場合はOptional.emptyを返す"() {
+        when:
+        def result = repository.findPasswordHashByUserId(USER_ID)
+
+        then:
+        1 * signonCustomMapper.findPasswordHashByUserId(USER_ID) >> null
+        result.isEmpty()
+    }
+
+    def "updatePassword: userId/passwordHash/updateUserIdをentityへ詰めてmapperを1回呼ぶ(m_signonはversion楽観ロック対象外)(#15)"() {
+        when:
+        def affected = repository.updatePassword(USER_ID, "{bcrypt}new-hash")
+
+        then:
+        1 * signonCustomMapper.updatePassword({ SignonUpdateCustomEntity e ->
+            e.userId == USER_ID && e.passwordHash == "{bcrypt}new-hash" && e.updateUserId == USER_ID
+        }) >> 1
+        affected == 1
     }
 }

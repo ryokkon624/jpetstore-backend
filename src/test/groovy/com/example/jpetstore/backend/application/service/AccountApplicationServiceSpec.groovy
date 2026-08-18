@@ -4,11 +4,15 @@ import com.example.jpetstore.backend.domain.account.AccountContact
 import com.example.jpetstore.backend.domain.account.AccountEditCommand
 import com.example.jpetstore.backend.domain.account.AccountRepository
 import com.example.jpetstore.backend.domain.account.AccountUpdate
+import com.example.jpetstore.backend.domain.account.PasswordChangeCommand
+import com.example.jpetstore.backend.domain.exception.InvalidCurrentPasswordException
 import com.example.jpetstore.backend.domain.exception.OptimisticLockConflictException
 import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider
+import jakarta.servlet.http.HttpServletResponse
 import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.crypto.password.PasswordEncoder
 import spock.lang.Specification
 
 /**
@@ -29,8 +33,11 @@ class AccountApplicationServiceSpec extends Specification {
     CurrentUserProvider currentUserProvider = Stub() {
         requireCurrentUser() >> new AuthenticatedUser(USER_ID, "account_user", ["USER"])
     }
+    PasswordEncoder passwordEncoder = Mock()
+    AuthApplicationService authApplicationService = Mock()
 
-    AccountApplicationService service = new AccountApplicationService(accountRepository, currentUserProvider)
+    AccountApplicationService service = new AccountApplicationService(
+            accountRepository, currentUserProvider, passwordEncoder, authApplicationService)
 
     private static AccountContact contact() {
         new AccountContact(
@@ -72,7 +79,7 @@ class AccountApplicationServiceSpec extends Specification {
         def unauthenticatedProvider = Stub(CurrentUserProvider) {
             requireCurrentUser() >> { throw new AccessDeniedException("Authentication required") }
         }
-        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider)
+        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider, passwordEncoder, authApplicationService)
 
         when:
         unauthenticatedService.getMyContact()
@@ -174,7 +181,7 @@ class AccountApplicationServiceSpec extends Specification {
         def unauthenticatedProvider = Stub(CurrentUserProvider) {
             requireCurrentUser() >> { throw new AccessDeniedException("Authentication required") }
         }
-        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider)
+        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider, passwordEncoder, authApplicationService)
 
         when:
         unauthenticatedService.updateAccount(editCommand())
@@ -182,5 +189,71 @@ class AccountApplicationServiceSpec extends Specification {
         then:
         thrown(AccessDeniedException)
         0 * accountRepository.updateAccount(_)
+    }
+
+    private static PasswordChangeCommand passwordChangeCommand(
+            String currentPassword = "OldCorrect#1", String newPassword = "NewCorrect#2") {
+        new PasswordChangeCommand(currentPassword, newPassword)
+    }
+
+    def "changePassword: 現在PWがhashと一致すれば新PWをbcryptエンコードしupdatePasswordへ渡し、トークンをローテートする(AC1/AC2/Q3)"() {
+        given:
+        HttpServletResponse response = Mock()
+
+        when:
+        service.changePassword(passwordChangeCommand(), response)
+
+        then:
+        1 * accountRepository.findPasswordHashByUserId(USER_ID) >> Optional.of("{bcrypt}stored-hash")
+        1 * passwordEncoder.matches("OldCorrect#1", "{bcrypt}stored-hash") >> true
+        1 * passwordEncoder.encode("NewCorrect#2") >> "{bcrypt}new-hash"
+        1 * accountRepository.updatePassword(USER_ID, "{bcrypt}new-hash")
+        1 * authApplicationService.issueTokensFor({ AuthenticatedUser u -> u.userId() == USER_ID }, response)
+    }
+
+    def "changePassword: 現在PWが不一致ならInvalidCurrentPasswordExceptionになり、更新もトークン発行もしない(AC-neg1・422)"() {
+        given:
+        HttpServletResponse response = Mock()
+        accountRepository.findPasswordHashByUserId(USER_ID) >> Optional.of("{bcrypt}stored-hash")
+        passwordEncoder.matches("WrongCurrent#1", "{bcrypt}stored-hash") >> false
+
+        when:
+        service.changePassword(passwordChangeCommand("WrongCurrent#1", "NewCorrect#2"), response)
+
+        then:
+        thrown(InvalidCurrentPasswordException)
+        0 * accountRepository.updatePassword(_, _)
+        0 * authApplicationService.issueTokensFor(_, _)
+    }
+
+    def "changePassword: repositoryがOptional.empty()(m_signon行なし)を返した場合はResourceNotFoundException"() {
+        given:
+        HttpServletResponse response = Mock()
+        accountRepository.findPasswordHashByUserId(USER_ID) >> Optional.empty()
+
+        when:
+        service.changePassword(passwordChangeCommand(), response)
+
+        then:
+        thrown(ResourceNotFoundException)
+        0 * accountRepository.updatePassword(_, _)
+        0 * authApplicationService.issueTokensFor(_, _)
+    }
+
+    def "changePassword: 未認証(CurrentUserProviderが空)はAccessDeniedExceptionになりrepositoryは呼ばれない"() {
+        given:
+        HttpServletResponse response = Mock()
+        def unauthenticatedProvider = Stub(CurrentUserProvider) {
+            requireCurrentUser() >> { throw new AccessDeniedException("Authentication required") }
+        }
+        def unauthenticatedService = new AccountApplicationService(accountRepository, unauthenticatedProvider, passwordEncoder, authApplicationService)
+
+        when:
+        unauthenticatedService.changePassword(passwordChangeCommand(), response)
+
+        then:
+        thrown(AccessDeniedException)
+        0 * accountRepository.findPasswordHashByUserId(_)
+        0 * accountRepository.updatePassword(_, _)
     }
 }

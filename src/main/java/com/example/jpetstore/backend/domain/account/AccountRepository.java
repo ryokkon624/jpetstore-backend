@@ -55,4 +55,19 @@ public interface AccountRepository {
    *     AffectedRows.requireUpdated}で409へ正規化する。1=成功）
    */
   int updateAccount(AccountUpdate update);
+
+  /**
+   * 指定 {@code userId} の現在パスワードハッシュを取得する（#15 AC1・現在PW再認証用）。
+   *
+   * @return 該当行が無ければ {@code Optional.empty()}
+   */
+  Optional<String> findPasswordHashByUserId(Long userId);
+
+  /**
+   * 指定 {@code userId} のパスワードハッシュを更新する（#15 AC2）。{@code m_signon} はversion楽観ロック対象外 （WHEREガード無し・{@code
+   * version + 1}は整合のため加算のみ・計画フェーズ確定）。
+   *
+   * @return 影響行数（通常1。0は対象userId不存在＝認証済みリクエストでは通常起こり得ない）
+   */
+  int updatePassword(Long userId, String newPasswordHash);
 }
