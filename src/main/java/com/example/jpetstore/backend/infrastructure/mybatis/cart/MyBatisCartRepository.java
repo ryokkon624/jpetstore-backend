@@ -12,7 +12,6 @@ import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.CartCu
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
 
@@ -70,9 +69,11 @@ public class MyBatisCartRepository implements CartRepository {
     if (itemIds.isEmpty()) {
       return Map.of();
     }
+    // #31: メソッド参照(StockAvailability::itemId・Function.identity())はJDTのNull type safety
+    // 警告のfalse-positive源のためラムダ化して解消する（挙動は不変）。
     return cartCustomMapper.selectItemsForCart(itemIds, cartId).stream()
         .map(CartConverter::toStockAvailability)
-        .collect(Collectors.toMap(StockAvailability::itemId, Function.identity()));
+        .collect(Collectors.toMap(stock -> stock.itemId(), stock -> stock));
   }
 
   @Override
