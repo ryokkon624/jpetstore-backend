@@ -11,6 +11,7 @@ import com.example.jpetstore.backend.presentation.rest.dto.PageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -76,16 +77,23 @@ public class OrderController {
    * 配送/請求先住所1件分のリクエストDTO（Controller層に閉じる）。{@code t_order} の永続列に対応する項目のみを持つ。 frontendの{@code
    * Address}型はemail/phoneも含むが、{@code t_order}に列が無く非永続のため本DTOには含めない
    * （余分なJSONフィールドとして送られても無視される。計画フェーズ確定）。
+   *
+   * <p>#40 AC2(N11): {@code @Size} は {@code t_order}（{@code
+   * V00_000_005__create_order_tables.sql}）の列幅と 整合させる:
+   * firstName/lastName/address1/address2/city/state=80、postalCode/country=20。超過長は {@code
+   * MethodArgumentNotValidException} 経由で400に正規化される（既存 {@code AccountController} の {@code @Size}
+   * 付与済みDTOと同じ粒度。{@code address2} の80は{@code m_account.address2}=40とは別テーブル （{@code
+   * t_order}）由来のため非対称で正しい）。{@code address2} は NULL 許容列のため {@code @NotBlank} を付けない。
    */
   public record OrderAddressRequest(
-      @NotBlank String firstName,
-      @NotBlank String lastName,
-      @NotBlank String address1,
-      String address2,
-      @NotBlank String city,
-      @NotBlank String state,
-      @NotBlank String postalCode,
-      @NotBlank String country) {
+      @NotBlank @Size(max = 80) String firstName,
+      @NotBlank @Size(max = 80) String lastName,
+      @NotBlank @Size(max = 80) String address1,
+      @Size(max = 80) String address2,
+      @NotBlank @Size(max = 80) String city,
+      @NotBlank @Size(max = 80) String state,
+      @NotBlank @Size(max = 20) String postalCode,
+      @NotBlank @Size(max = 20) String country) {
 
     OrderAddress toDomain() {
       return new OrderAddress(
@@ -97,10 +105,16 @@ public class OrderController {
    * 注文確定リクエストDTO（Controller層に閉じる・SBD-2アローリスト）。{@code billing} は必須。{@code shipping} は {@code
    * useSeparateShipping=true} のときのみ使われる（{@code false} の場合は billing がそのまま配送先になる。 サービス層の {@code
    * PlaceOrderCommand#effectiveShipping()} が解決する）。
+   *
+   * <p>#40 AC3(N11): {@code shipping} に {@code @Valid} を付与し、{@code useSeparateShipping=true} のとき
+   * shipping の各項目にも billing と同一の検証（{@code @NotBlank}＋{@code @Size}）がカスケードされるようにする。 Bean Validation
+   * はネストした record へ {@code @Valid} 無しではカスケードしないため、これが無いと shipping の必須項目が空/欠落のまま NOT NULL 列（{@code
+   * ship_address1} 等）へ到達し500になっていた。 {@code @NotNull} は付けない（既存 {@code toCommand()} の null ガード＝{@code
+   * useSeparateShipping=false}時の null許容を維持するため）。
    */
   public record PlaceOrderRequest(
       @NotNull @Valid OrderAddressRequest billing,
-      OrderAddressRequest shipping,
+      @Valid OrderAddressRequest shipping,
       boolean useSeparateShipping) {
 
     PlaceOrderCommand toCommand() {

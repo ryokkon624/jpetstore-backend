@@ -5,6 +5,7 @@ import com.example.jpetstore.backend.domain.exception.ResourceNotFoundException
 import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder
 import com.example.jpetstore.backend.presentation.rest.CatalogController
 import org.springframework.core.MethodParameter
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.mock.web.MockHttpServletRequest
@@ -71,6 +72,18 @@ class GlobalExceptionHandlerSpec extends Specification {
         response.statusCode == HttpStatus.UNAUTHORIZED
         response.body.code == "UNAUTHORIZED"
         1 * recorder.recordAuthzFailure("/api/secured/ping", _ as String, request)
+    }
+
+    def "#40 AC4(N11): DataIntegrityViolationExceptionは400に正規化されDB由来の生メッセージを露出しない"() {
+        when:
+        def response = handler.handleDataIntegrityViolation(
+                new DataIntegrityViolationException("Data too long for column 'postal_code' at row 1"), request)
+
+        then:
+        response.statusCode == HttpStatus.BAD_REQUEST
+        response.body.code == "BAD_REQUEST"
+        response.body.message == "Invalid request data"
+        !response.body.message.contains("postal_code")
     }
 
     def "IllegalArgumentExceptionは400に正規化される"() {

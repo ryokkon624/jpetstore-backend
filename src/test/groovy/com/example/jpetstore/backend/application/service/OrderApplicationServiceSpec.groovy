@@ -164,6 +164,34 @@ class OrderApplicationServiceSpec extends Specification {
         0 * auditLogRecorder.recordStateChange(*_)
     }
 
+    def "#40 AC1(N3): 在庫不足以外の失敗(DB例外等)でもREQUIRES_NEWの別tx経路でFAILURE監査を記録してから再送出する"() {
+        given:
+        cartRepository.findByCartId(CART_ID) >> cartOf(cartItem("EST-1", 1, 10.00))
+        orderRepository.insertHeader(_) >> { throw new org.springframework.dao.DataIntegrityViolationException("Data too long for column 'postal_code'") }
+
+        when:
+        service.placeOrder(new PlaceOrderCommand(address(), null, false))
+
+        then: "DB由来の生メッセージ・例外クラス名は失敗detailに含めない(SBD-10)"
+        thrown(org.springframework.dao.DataIntegrityViolationException)
+        1 * auditLogRecorder.recordStateChangeIndependently("ORDER_CREATE", null, null, "FAILURE",
+                { !it.toString().contains("postal_code") && !it.toString().contains("DataIntegrityViolationException") })
+        0 * auditLogRecorder.recordStateChange(*_)
+    }
+
+    def "#40 AC1(N3・F3): cartRepository.ensureCart自体が失敗してもFAILURE監査を記録してから再送出する(tryの外だと監査ゼロで抜けていた経路)"() {
+        given:
+        cartRepository.ensureCart(USER_ID) >> { throw new RuntimeException("db down") }
+
+        when:
+        service.placeOrder(new PlaceOrderCommand(address(), null, false))
+
+        then:
+        thrown(RuntimeException)
+        1 * auditLogRecorder.recordStateChangeIndependently("ORDER_CREATE", null, null, "FAILURE", _)
+        0 * auditLogRecorder.recordStateChange(*_)
+    }
+
     def "AC6: 空カート拒否時もREQUIRES_NEWの別tx経路でFAILURE監査を記録する"() {
         given:
         cartRepository.findByCartId(CART_ID) >> cartOf()
