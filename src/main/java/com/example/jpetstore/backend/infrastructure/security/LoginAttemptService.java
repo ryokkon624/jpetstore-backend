@@ -49,12 +49,14 @@ public class LoginAttemptService {
    * 同一 username への max-attempts+1 本以上の「同時成功」ログインでは最後の1本が誤401になり得る。ただし {@link #recordSuccess} の
    * DELETE により次リクエストで即座に自己回復するため実害は極小である。
    *
-   * <p><b>perf是正（{@code @Transactional(REQUIRES_NEW)}）</b>: {@link #ensureRow}（INSERT..ODKU）と
-   * {@link LoginAttemptCustomMapper#acquireSlot}（UPDATE）が個別に autocommit されコミットが2回発生していたため、 {@code
+   * <p><b>perf是正（{@code @Transactional(REQUIRES_NEW)}）</b>: {@link
+   * LoginAttemptCustomMapper#ensureRow} （INSERT..ODKU）と {@link
+   * LoginAttemptCustomMapper#acquireSlot}（UPDATE）が個別に autocommit されコミットが2回発生していたため、 {@code
    * RegisterAttemptService#acquireAttemptSlotOrThrow}/{@code AuditWriteQuotaService#tryAcquire}
    * と同じく1トランザクションへまとめた。「bcrypt を行ロック内に抱えない」という設計意図は損なわれない: {@code AuthApplicationService.login}
    * は本メソッドの **return 後**に {@code authenticationManager.authenticate}
-   * （bcrypt）を呼ぶため、本メソッドの行ロック・トランザクションは bcrypt 開始前に必ずコミット済みになる。
+   * （bcrypt）を呼ぶため、本メソッドの行ロック・トランザクションは bcrypt 開始前に必ずコミット済みになる。呼び出し元（{@code
+   * AuthApplicationService}）は本メソッドを持つ本クラス（別bean）を経由して呼ぶため、Spring AOPプロキシが正しく介在する（自己呼び出しではない）。
    *
    * <p><b>ロールバック安全性の不変条件（レート制限バイパス防止）</b>: 本メソッドが投げる {@link BadCredentialsException} は {@code
    * affected == 0}（＝枠を確保**できなかった**）ときにのみ送出される。 ロールバックされるのは「枠を消費していないケース」だけであり、枠確保に成功した後で例外を投げる経路は
