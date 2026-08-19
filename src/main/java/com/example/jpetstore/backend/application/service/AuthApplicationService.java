@@ -12,7 +12,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -48,9 +47,10 @@ public class AuthApplicationService {
   /**
    * username/password を照合し、成功すれば access/refresh を新規発行して httpOnly Cookie にセットする（AC1/AC2）。
    *
-   * <p>#20 AC1(SBD-6): {@link LoginAttemptService#assertNotLocked} を authenticate() の前に呼び、ロック中なら
-   * 既存の誤資格と同一の例外で短絡する（列挙不可）。authenticate() が失敗した場合は {@link LoginAttemptService#recordFailure}
-   * を記録してから同一の例外をそのまま再送出する（呼び出し元の一律401ハンドリングを変えない）。
+   * <p>#41 AC1(SBD-6・N4): {@link LoginAttemptService#acquireAttemptSlotOrThrow} を authenticate()
+   * の前に 呼び、照合前にスロットを原子的に確保する（check-then-act の TOCTOU を解消。旧 {@code assertNotLocked}/{@code
+   * recordFailure} の2段構えは本メソッド1本へ統合済み）。枠確保に失敗（ロック中） なら既存の誤資格と同一の例外で短絡する（列挙不可）。authenticate()
+   * が失敗しても追加の計数呼び出しは不要 （枠確保の時点で既に消費済みのため）。
    *
    * <p>{@link AuthenticationManager#authenticate} が資格情報を照合する（{@code DaoAuthenticationProvider} 経由で
    * {@code JdbcUserDetailsService}＋#19 の {@code PasswordEncoder} を使用）。誤 password・未知 username はいずれも
@@ -63,17 +63,11 @@ public class AuthApplicationService {
    */
   public AuthenticatedUser login(
       String username, String rawPassword, HttpServletResponse response) {
-    loginAttemptService.assertNotLocked(username);
+    loginAttemptService.acquireAttemptSlotOrThrow(username);
 
-    Authentication authResult;
-    try {
-      authResult =
-          authenticationManager.authenticate(
-              new UsernamePasswordAuthenticationToken(username, rawPassword));
-    } catch (AuthenticationException e) {
-      loginAttemptService.recordFailure(username);
-      throw e;
-    }
+    Authentication authResult =
+        authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(username, rawPassword));
     loginAttemptService.recordSuccess(username);
 
     AuthenticatedUserDetails principal = (AuthenticatedUserDetails) authResult.getPrincipal();

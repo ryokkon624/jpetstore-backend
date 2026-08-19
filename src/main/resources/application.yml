@@ -56,3 +56,11 @@ auth:
   lockout:
     max-attempts: 5
     lock-duration: PT15M
+
+audit:
+  # #39 AC3 (SBD-14/N14): 未認証由来のAUTHZ_FAILURE監査writeの窓内上限。認証済み403には掛けない
+  # （掛けると#39が直している監査抑止=N2を再導入してしまうため。AuditWriteQuotaService javadoc参照）。
+  # env上書き可（例: AUDIT_WRITE_QUOTA_MAX_WRITES / AUDIT_WRITE_QUOTA_WINDOW）。
+  write-quota:
+    max-writes: 100
+    window: PT1M

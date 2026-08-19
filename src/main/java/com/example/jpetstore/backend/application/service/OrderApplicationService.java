@@ -91,16 +91,22 @@ public class OrderApplicationService {
    * AuditLogRecorder#recordStateChangeIndependently}・REQUIRES_NEW）で FAILURE
    * 監査を記録してから再送出する（AC6・計画フェーズ確定③。主txのロールバックに巻き込まれない）。
    *
+   * <p>#40 AC1(N3): 在庫不足以外の失敗（DB制約違反等の想定外の {@link RuntimeException}）も同じ独立監査経路で {@code
+   * ORDER_CREATE}/{@code FAILURE} を必ず記録する（従来は {@link InsufficientStockException} 以外は
+   * 監査ゼロのまま伝播していた）。{@code cartRepository.ensureCart}/{@code findByCartId} も本 try 内に含める （F3: try
+   * の外だと、これらの呼び出し自体が失敗した場合に監査ゼロで抜けてしまうため）。
+   *
    * @throws InsufficientStockException 在庫不足（affected rows==0）または空カートの場合（409相当）
    */
   @Transactional
   public OrderConfirmation placeOrder(PlaceOrderCommand command) {
     AuthenticatedUser user = currentUserProvider.requireCurrentUser();
     Long userId = user.userId();
-    Long cartId = cartRepository.ensureCart(userId);
-    List<CartItem> cartItems = cartRepository.findByCartId(cartId).items();
 
     try {
+      Long cartId = cartRepository.ensureCart(userId);
+      List<CartItem> cartItems = cartRepository.findByCartId(cartId).items();
+
       if (cartItems.isEmpty()) {
         throw new InsufficientStockException(null);
       }
@@ -129,6 +135,12 @@ public class OrderApplicationService {
     } catch (InsufficientStockException e) {
       auditLogRecorder.recordStateChangeIndependently(
           ACTION_ORDER_CREATE, null, null, RESULT_FAILURE, failureDetail(e));
+      throw e;
+    } catch (RuntimeException e) {
+      // #40 AC1(N3): 在庫不足以外の失敗(DB制約違反等)でも必ずORDER_CREATE/FAILUREを記録する。
+      // 失敗detailにDB由来の生メッセージ・例外クラス名を入れない(SBD-10)。
+      auditLogRecorder.recordStateChangeIndependently(
+          ACTION_ORDER_CREATE, null, null, RESULT_FAILURE, Map.of("reason", "UNEXPECTED_ERROR"));
       throw e;
     }
   }

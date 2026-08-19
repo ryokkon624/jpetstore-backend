@@ -49,9 +49,12 @@ DB 資格情報・JWT 署名鍵はソースにデフォルト値を持たせて�
 | 環境変数 | 用途 | 備考 |
 | --- | --- | --- |
 | `DB_USERNAME` / `DB_PASSWORD` | DB 接続資格情報 | ローカル開発は `jpetstore-database` の docker-compose 既定値（`jpetstore`/`jpetstore`） |
-| `JWT_SECRET` | JWT 署名鍵（HS256） | 最小 32byte。起動時に鍵長を検証する（`JwtProperties`） |
+| `JWT_SECRET` | JWT 署名鍵（HS256） | 最小 32byte **かつ** ユニーク文字数24以上。既知 placeholder（`.env.example` の値・`changeme`/`secret`/`password` 等）は denylist で拒否される（起動時に `JwtProperties`/`JwtSecretPolicy` が検証。#38） |
 
 1. `.env.example` を `.env` にコピーして値を設定する（`.env` は `.gitignore` 対象）。
+
+   ⚠️ **破壊的変更（#38）**: `.env.example` の `JWT_SECRET` はダミー値であり、**そのままコピーしただけでは backend が起動しない**（既知 placeholder として denylist で拒否される）。必ず `openssl rand -base64 32` 等で生成した値へ差し替えること。生成した値がまれにユニーク文字数24未満になる場合は、その値では起動しないため再生成すること。
+   本番デプロイでは、実秘密は環境変数またはシークレットストアから注入する運用とし、`.env`/リポジトリへ平文で残さないこと（本プロジェクトに本番デプロイ基盤は無いため、この運用そのものの動作確認は対象外）。
 2. 起動前にシェルの環境変数として読み込む。
 
    ```bash

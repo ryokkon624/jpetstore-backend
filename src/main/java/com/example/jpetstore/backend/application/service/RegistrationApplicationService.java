@@ -15,19 +15,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * ユーザー登録ユースケース（#13 AC1〜AC6・[L2]・AC-neg1/AC-neg2）。
+ * ユーザー登録ユースケース（#13 AC1〜AC6・[L2]・AC-neg1/AC-neg2・#41 AC2）。
  *
- * <p>①DB-backedレート制限ゲート（{@link RegisterAttemptService#assertNotRateLimited}・IPキー・AC4/SBD-6）
+ * <p>①DB-backedレート制限ゲート（{@link RegisterAttemptService#acquireAttemptSlotOrThrow}・IPキー・AC4/SBD-6）
  * →②{@code password==repeatedPassword}検証（不一致は400）→③bcryptエンコード（AC3・SBD-5）→ ④{@link
  * AccountRepository#register}でm_account/m_signon/m_profileへ atomic に
  * INSERT（{@code @Transactional}）→⑤username重複（{@link DuplicateKeyException}）は{@link
  * UsernameAlreadyExistsException} に変換し409＋明示（E4）→⑥{@link
  * AuthApplicationService#issueTokensFor}（login末尾から抽出・E9）で 照合スキップのfresh JWT自動ログイン、の順に処理する。
  *
- * <p>{@link RegisterAttemptService#recordAttempt}は結果（成功/400/409）を問わず必ず1回呼ぶ（登録は「1回の
- * 試行」自体がIP由来の資源消費であり、{@code LoginAttemptService}の「失敗のみ記録」とは異なる設計。詳細は {@code
- * backlog/sprint_16/implementation-notes.md}）。ただしレート制限ゲート自体で短絡した場合は呼ばない （{@code
- * AuthApplicationService#login}が{@code assertNotLocked}短絡時に{@code recordFailure}を呼ばないのと 同じ設計）。
+ * <p>#41: {@link RegisterAttemptService#acquireAttemptSlotOrThrow} は登録処理の**前**にスロットを原子的に確保する
+ * （旧設計の「レート制限判定→登録処理→{@code finally}で毎回recordAttempt」という check-then-act 構造を解消。 詳細は同メソッドの
+ * javadoc・F6参照）。枠確保自体で短絡した場合（レート制限中）は登録処理自体に進まない。
  *
  * <p>client_ipは{@code request.getRemoteAddr()}から解決する（X-Forwarded-Forは信頼しない・Sprint2教訓）。
  *
@@ -68,29 +67,25 @@ public class RegistrationApplicationService {
   public AuthenticatedUser register(
       RegisterAccountCommand command, HttpServletRequest request, HttpServletResponse response) {
     String clientIp = request.getRemoteAddr();
-    registerAttemptService.assertNotRateLimited(clientIp);
+    registerAttemptService.acquireAttemptSlotOrThrow(clientIp);
 
-    try {
-      if (!command.password().equals(command.repeatedPassword())) {
-        throw new IllegalArgumentException("Passwords do not match");
-      }
-
-      String passwordHash = passwordEncoder.encode(command.password());
-      NewAccountRegistration registration = toRegistration(command, passwordHash);
-
-      Long userId;
-      try {
-        userId = accountRepository.register(registration);
-      } catch (DuplicateKeyException e) {
-        throw new UsernameAlreadyExistsException();
-      }
-
-      AuthenticatedUser user = new AuthenticatedUser(userId, command.username(), DEFAULT_ROLES);
-      authApplicationService.issueTokensFor(user, response);
-      return user;
-    } finally {
-      registerAttemptService.recordAttempt(clientIp);
+    if (!command.password().equals(command.repeatedPassword())) {
+      throw new IllegalArgumentException("Passwords do not match");
     }
+
+    String passwordHash = passwordEncoder.encode(command.password());
+    NewAccountRegistration registration = toRegistration(command, passwordHash);
+
+    Long userId;
+    try {
+      userId = accountRepository.register(registration);
+    } catch (DuplicateKeyException e) {
+      throw new UsernameAlreadyExistsException();
+    }
+
+    AuthenticatedUser user = new AuthenticatedUser(userId, command.username(), DEFAULT_ROLES);
+    authApplicationService.issueTokensFor(user, response);
+    return user;
   }
 
   private NewAccountRegistration toRegistration(

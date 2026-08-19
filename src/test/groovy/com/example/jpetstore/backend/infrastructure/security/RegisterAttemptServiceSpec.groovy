@@ -7,13 +7,12 @@ import spock.lang.Specification
 import java.time.Duration
 
 /**
- * #13 AC4/AC-neg2(SBD-6): 登録エンドポイントの総当り/列挙対策となるレート制限ゲート。
+ * #13 AC4/AC-neg2(SBD-6)／#41 AC2/AC4(N4): 登録エンドポイントの総当り/列挙対策となるレート制限ゲート。
  *
- * <p>{@code LoginAttemptService}（username PK・失敗時のみ記録）とは異なり、登録は成功/失敗を問わず
- * 「1回の試行」自体がIPからの資源消費（アカウント大量作成の温床）であるため、{@code recordAttempt}は
- * 呼び出し元（{@code RegistrationApplicationService}）が結果を問わず毎回呼ぶ設計とする（詳細は
- * implementation-notes.md参照）。ロック判定はDB側のNOW(6)で行う（{@code
- * RegisterAttemptCustomMapper#countActiveLock}）ため、ここではcountActiveLockの戻り値に応じた分岐のみを検証する。
+ * <p>{@link RegisterAttemptService#acquireAttemptSlotOrThrow} は登録処理の前にスロットを原子的に確保する
+ * （#41でcheck-then-actのTOCTOUを解消。旧{@code assertNotRateLimited}/{@code recordAttempt}の2段構えを統合）。
+ * ロック判定はDB側のNOW(6)で行う（{@code RegisterAttemptCustomMapper#acquireSlot}のWHERE句）ため、ここでは
+ * mapper の戻り値（affected rows）に応じた分岐のみを検証する。
  */
 class RegisterAttemptServiceSpec extends Specification {
 
@@ -21,33 +20,38 @@ class RegisterAttemptServiceSpec extends Specification {
     RegisterAttemptProperties properties = new RegisterAttemptProperties(5, Duration.ofMinutes(15))
     RegisterAttemptService service = new RegisterAttemptService(mapper, properties)
 
-    def "レート制限中(countActiveLock>0)ならRegistrationRateLimitExceededExceptionを投げる"() {
+    def "枠確保に失敗(acquireSlotのaffected rows==0)ならRegistrationRateLimitExceededExceptionを投げる"() {
         given:
-        mapper.countActiveLock("203.0.113.1") >> 1
+        mapper.acquireSlot("203.0.113.1", 5, 900L, "SYSTEM") >> 0
 
         when:
-        service.assertNotRateLimited("203.0.113.1")
+        service.acquireAttemptSlotOrThrow("203.0.113.1")
 
         then:
         thrown(RegistrationRateLimitExceededException)
+        1 * mapper.ensureRow("203.0.113.1", "SYSTEM")
     }
 
-    def "レート制限されていない(countActiveLock==0)ならassertNotRateLimitedは通過する"() {
+    def "枠確保に成功(acquireSlotのaffected rows==1)ならacquireAttemptSlotOrThrowは通過する"() {
         given:
-        mapper.countActiveLock("203.0.113.2") >> 0
+        mapper.acquireSlot("203.0.113.2", 5, 900L, "SYSTEM") >> 1
 
         when:
-        service.assertNotRateLimited("203.0.113.2")
+        service.acquireAttemptSlotOrThrow("203.0.113.2")
 
         then:
         noExceptionThrown()
+        1 * mapper.ensureRow("203.0.113.2", "SYSTEM")
     }
 
-    def "recordAttemptはmapperへclientIp/閾値/ロック期間(秒)/programを渡す"() {
+    def "acquireAttemptSlotOrThrowはensureRow→acquireSlotの順にclientIp/閾値/ロック期間(秒)/programを渡す"() {
         when:
-        service.recordAttempt("203.0.113.3")
+        service.acquireAttemptSlotOrThrow("203.0.113.3")
 
         then:
-        1 * mapper.recordAttempt("203.0.113.3", 5, 900L, "SYSTEM")
+        1 * mapper.ensureRow("203.0.113.3", "SYSTEM")
+
+        then:
+        1 * mapper.acquireSlot("203.0.113.3", 5, 900L, "SYSTEM") >> 1
     }
 }

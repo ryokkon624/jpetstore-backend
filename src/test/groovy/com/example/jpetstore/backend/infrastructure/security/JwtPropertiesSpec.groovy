@@ -1,5 +1,6 @@
 package com.example.jpetstore.backend.infrastructure.security
 
+import com.example.jpetstore.backend.support.TestJwtSecrets
 import spock.lang.Specification
 
 import java.time.Duration
@@ -7,7 +8,9 @@ import java.time.Duration
 /**
  * AC5/AC-neg1 (SBD-11): JWT 署名鍵の最小鍵長検証（起動時 fail-fast）。
  *
- * 「未設定なら起動失敗」は Spring のプレースホルダ未解決で担保される（{@link SecretFailFastSpec} で実証）。
+ * <p>「未設定なら起動失敗」は Spring のプレースホルダ未解決で担保される
+ * （{@link com.example.jpetstore.backend.config.ApplicationBootFailFastSpec} で実証）。
+ * denylist・最小エントロピー検証（#38 AC1/AC2）は {@link JwtSecretPolicySpec} が単体で担う。
  * 本テストは「設定されているが短すぎる」ケースの検証を担う。
  */
 class JwtPropertiesSpec extends Specification {
@@ -15,9 +18,9 @@ class JwtPropertiesSpec extends Specification {
     private static final Duration ACCESS_TTL = Duration.ofMinutes(15)
     private static final Duration REFRESH_TTL = Duration.ofDays(7)
 
-    def "32byte以上の鍵なら正常に構築できる"() {
+    def "32byte以上・エントロピー十分な鍵なら正常に構築できる"() {
         given:
-        String secret = "a" * 32
+        String secret = TestJwtSecrets.STRONG
 
         when:
         def properties = new JwtProperties(secret, ACCESS_TTL, REFRESH_TTL)

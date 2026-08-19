@@ -3,6 +3,7 @@ package com.example.jpetstore.backend.application.service
 import com.example.jpetstore.backend.domain.account.AccountRepository
 import com.example.jpetstore.backend.domain.account.NewAccountRegistration
 import com.example.jpetstore.backend.domain.account.RegisterAccountCommand
+import com.example.jpetstore.backend.domain.exception.RegistrationRateLimitExceededException
 import com.example.jpetstore.backend.domain.exception.UsernameAlreadyExistsException
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.infrastructure.security.RegisterAttemptService
@@ -13,16 +14,16 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import spock.lang.Specification
 
 /**
- * #13 AC1/AC3/AC4・AC-neg1/AC-neg2: ユーザー登録ユースケース（DB-backedレート制限ゲート→
+ * #13 AC1/AC3/AC4・AC-neg1/AC-neg2／#41 AC2(N4): ユーザー登録ユースケース（DB-backedレート制限ゲート→
  * password一致検証→bcryptエンコード→m_account/m_signon/m_profile INSERT→username重複409→
  * 自動ログイン(fresh JWT)）を検証する。
  *
  * <p>E9: 自動ログインは{@code AuthApplicationService#issueTokensFor}（login末尾から抽出）を再利用する
  * （照合はスキップ・新規作成した本人であることは登録処理自体が保証している）。
  *
- * <p>レート制限: {@code assertNotRateLimited}がロック中(429相当)なら即座に短絡し、以降の処理を一切行わない
- * （{@code LoginAttemptService}と同じ設計）。それ以外は結果（成功/400/409）を問わず必ず{@code recordAttempt}
- * を呼ぶ（登録は「1回の試行」自体がIP由来の資源消費であるため。implementation-notes.md参照）。
+ * <p>#41: {@code acquireAttemptSlotOrThrow} が登録処理の**前**にスロットを原子的に確保する（旧設計の
+ * 「レート制限判定→登録処理→{@code finally}で毎回recordAttempt」というcheck-then-act構造を解消。枠確保で
+ * 短絡した場合は即座に例外が伝播し、以降の処理を一切行わない）。
  */
 class RegistrationApplicationServiceSpec extends Specification {
 
@@ -49,29 +50,27 @@ class RegistrationApplicationServiceSpec extends Specification {
                 languagePreference, favoriteCategoryId)
     }
 
-    def "レート制限中ならassertNotRateLimitedで短絡し、以降の処理を一切行わない"() {
+    def "枠確保に失敗(レート制限中)ならacquireAttemptSlotOrThrowで短絡し、以降の処理を一切行わない"() {
         given:
-        registerAttemptService.assertNotRateLimited(CLIENT_IP) >> { throw new com.example.jpetstore.backend.domain.exception.RegistrationRateLimitExceededException() }
+        registerAttemptService.acquireAttemptSlotOrThrow(CLIENT_IP) >> { throw new RegistrationRateLimitExceededException() }
 
         when:
         service.register(command(), request, response)
 
         then:
-        thrown(com.example.jpetstore.backend.domain.exception.RegistrationRateLimitExceededException)
+        thrown(RegistrationRateLimitExceededException)
         0 * passwordEncoder.encode(_)
         0 * accountRepository.register(_)
-        0 * registerAttemptService.recordAttempt(_)
         0 * authApplicationService.issueTokensFor(_, _)
     }
 
-    def "パスワード不一致はIllegalArgumentExceptionになり、attemptは記録される(レート制限ゲートは通過済のため)"() {
+    def "パスワード不一致はIllegalArgumentExceptionになる(枠は既にacquireAttemptSlotOrThrowで消費済み)"() {
         when:
         service.register(command("pw-a", "pw-b"), request, response)
 
         then:
         thrown(IllegalArgumentException)
-        1 * registerAttemptService.assertNotRateLimited(CLIENT_IP)
-        1 * registerAttemptService.recordAttempt(CLIENT_IP)
+        1 * registerAttemptService.acquireAttemptSlotOrThrow(CLIENT_IP)
         0 * accountRepository.register(_)
         0 * authApplicationService.issueTokensFor(_, _)
     }
@@ -84,7 +83,7 @@ class RegistrationApplicationServiceSpec extends Specification {
         def result = service.register(command(), request, response)
 
         then:
-        1 * registerAttemptService.assertNotRateLimited(CLIENT_IP)
+        1 * registerAttemptService.acquireAttemptSlotOrThrow(CLIENT_IP)
         1 * accountRepository.register({ NewAccountRegistration r ->
             r.username() == "new_user" &&
                     r.passwordHash() == "{bcrypt}hashed" &&
@@ -104,7 +103,6 @@ class RegistrationApplicationServiceSpec extends Specification {
         1 * authApplicationService.issueTokensFor({ AuthenticatedUser u ->
             u.userId() == 99L && u.username() == "new_user" && u.roles() == ["USER"]
         }, response)
-        1 * registerAttemptService.recordAttempt(CLIENT_IP)
         result.userId() == 99L
         result.username() == "new_user"
         result.roles() == ["USER"]
@@ -123,7 +121,7 @@ class RegistrationApplicationServiceSpec extends Specification {
         }) >> 1L
     }
 
-    def "username重複(DuplicateKeyException)はUsernameAlreadyExistsExceptionに変換し、自動ログインは行わない。attemptは記録される"() {
+    def "username重複(DuplicateKeyException)はUsernameAlreadyExistsExceptionに変換し、自動ログインは行わない"() {
         given:
         passwordEncoder.encode(_) >> "{bcrypt}hashed"
         accountRepository.register(_) >> { throw new DuplicateKeyException("uk_m_account_username") }
@@ -133,7 +131,7 @@ class RegistrationApplicationServiceSpec extends Specification {
 
         then:
         thrown(UsernameAlreadyExistsException)
-        1 * registerAttemptService.recordAttempt(CLIENT_IP)
+        1 * registerAttemptService.acquireAttemptSlotOrThrow(CLIENT_IP)
         0 * authApplicationService.issueTokensFor(_, _)
     }
 
@@ -146,7 +144,6 @@ class RegistrationApplicationServiceSpec extends Specification {
         service.register(command(), request, response)
 
         then:
-        1 * registerAttemptService.assertNotRateLimited(CLIENT_IP)
-        1 * registerAttemptService.recordAttempt(CLIENT_IP)
+        1 * registerAttemptService.acquireAttemptSlotOrThrow(CLIENT_IP)
     }
 }

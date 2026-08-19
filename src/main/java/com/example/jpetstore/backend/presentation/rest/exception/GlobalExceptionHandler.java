@@ -10,6 +10,7 @@ import com.example.jpetstore.backend.infrastructure.audit.AuditLogRecorder;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -140,6 +141,20 @@ public class GlobalExceptionHandler {
       HttpRequestMethodNotSupportedException e, HttpServletRequest request) {
     return build(
         HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED", "Method not allowed", request);
+  }
+
+  /**
+   * #40 AC4(N11): AC2/AC3の入口検証（{@code @Size}/{@code @Valid}カスケード）をすり抜けた想定外の DB 制約違反（列幅超過・NOT
+   * NULL違反等）を400として正規化する。専用ハンドラが無いと下の {@link #handleUnexpected}
+   * が拾い500に丸めてしまう。DB由来の生メッセージは外部に返さず内部ログWARNのみに残す
+   * （SBD-10）。防御多層（AC2/AC3の入口検証を通過した経路からは通常到達しない）。#42(D)（{@code favoriteCategoryId}
+   * の実在検証欠落によるFK違反500）が本ハンドラを再利用する前提（PO判断・2026-08-19）。
+   */
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
+      DataIntegrityViolationException e, HttpServletRequest request) {
+    log.warn("Data integrity violation: {}", e.getMessage());
+    return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Invalid request data", request);
   }
 
   @ExceptionHandler(IllegalArgumentException.class)

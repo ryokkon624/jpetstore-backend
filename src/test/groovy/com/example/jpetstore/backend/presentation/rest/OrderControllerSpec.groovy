@@ -247,6 +247,34 @@ class OrderControllerSpec extends IntegrationTestBase {
                 .andExpect(status().isBadRequest())
     }
 
+    def "#40 AC2/AC-neg1(N11): postalCodeが列幅超過(40文字)だと400になる(500ではない・L3スキャナ実測PoCの回帰テスト化)"() {
+        given:
+        addToCart(ITEM_PLENTY, 1)
+        def longPostalCode = "0" * 40
+        def billing = """
+            {"firstName":"Taro","lastName":"Yamada","address1":"1 Test St","address2":"Suite 2",
+             "city":"Testville","state":"CA","postalCode":"${longPostalCode}","country":"USA"}
+        """
+
+        expect:
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"billing": ${billing}, "useSeparateShipping": false}"""))
+                .andExpect(status().isBadRequest())
+    }
+
+    def "#40 AC3/AC-neg2(N11): useSeparateShipping=trueでshippingの必須項目が空だと400になる(500ではない・@Valid未カスケードの回帰)"() {
+        given:
+        addToCart(ITEM_PLENTY, 1)
+        def emptyShipping = '{"firstName":"","lastName":"","address1":"","city":"","state":"","postalCode":"","country":""}'
+
+        expect:
+        mockMvc.perform(post("/api/orders").with(csrf()).cookie(accessTokenCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"billing": ${BILLING_JSON}, "shipping": ${emptyShipping}, "useSeparateShipping": true}"""))
+                .andExpect(status().isBadRequest())
+    }
+
     def "未認証でPOST /api/ordersすると401になる(CSRFフィルタは通過させたうえで認証の欠如を検証)"() {
         expect:
         mockMvc.perform(post("/api/orders").with(csrf())

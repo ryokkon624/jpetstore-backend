@@ -25,6 +25,10 @@ class AuditLogRecorderSpec extends IntegrationTestBase {
 
     void setup() {
         jdbcTemplate.update("DELETE FROM t_audit_log")
+        // #39 AC3(F5): IT は単一MySQLコンテナを全specで共有するため、未認証recordAuthzFailure呼び出し
+        // (このSpecの複数メソッドが同一client_ip="203.0.113.10"を使う)がAuditWriteQuotaの窓を
+        // 消費し続けると本Specの「1行記録される」アサーションが偽陰性化しうる。テストごとにクリアする。
+        jdbcTemplate.update("DELETE FROM t_audit_write_quota")
     }
 
     def "recordAuthzFailureはevent_type=AUTHZ_FAILURE/result=DENIEDで1行記録する"() {
@@ -45,6 +49,21 @@ class AuditLogRecorderSpec extends IntegrationTestBase {
         // WHO インターセプタが create_program/update_program を補完する(未設定ならSYSTEM)。
         row.create_program != null
         row.update_program != null
+    }
+
+    def "#39 AC1: actionが101文字以上でも先頭100文字を保持してINSERT成功する(L3 N2 truncate)"() {
+        given:
+        def request = new MockHttpServletRequest()
+        request.setRemoteAddr("203.0.113.11")
+        def longAction = "/api/orders/" + ("0" * 90) + "909090909" // 101文字以上
+
+        when:
+        recorder.recordAuthzFailure(longAction, "insufficient role", request)
+
+        then:
+        def row = jdbcTemplate.queryForMap("SELECT * FROM t_audit_log ORDER BY audit_id DESC LIMIT 1")
+        row.action == longAction.substring(0, 100)
+        (row.action as String).length() == 100
     }
 
     def "X-Forwarded-Forヘッダがあっても無条件に信頼せずgetRemoteAddr()を使う(レビュー指摘対応)"() {
