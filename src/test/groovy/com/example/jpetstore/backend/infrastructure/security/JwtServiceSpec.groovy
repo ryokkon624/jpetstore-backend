@@ -1,6 +1,7 @@
 package com.example.jpetstore.backend.infrastructure.security
 
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
+import com.example.jpetstore.backend.support.TestJwtSecrets
 import spock.lang.Specification
 
 import java.time.Duration
@@ -11,7 +12,7 @@ import java.time.Duration
  */
 class JwtServiceSpec extends Specification {
 
-    def properties = new JwtProperties("a" * 32, Duration.ofMinutes(15), Duration.ofDays(7))
+    def properties = new JwtProperties(TestJwtSecrets.STRONG, Duration.ofMinutes(15), Duration.ofDays(7))
     def service = new JwtService(properties)
 
     def "generateAccessTokenで発行したトークンをparseAccessTokenで復元できる"() {
@@ -78,7 +79,8 @@ class JwtServiceSpec extends Specification {
 
     def "異なる鍵で署名されたトークンはparseAccessTokenで空を返す"() {
         given:
-        def otherService = new JwtService(new JwtProperties("b" * 32, Duration.ofMinutes(15), Duration.ofDays(7)))
+        def otherSecret = "zZ9yY8xX7wW6vV5uU4tT3sS2rR1qQ0pP"
+        def otherService = new JwtService(new JwtProperties(otherSecret, Duration.ofMinutes(15), Duration.ofDays(7)))
         def token = otherService.generateAccessToken(new AuthenticatedUser(1L, "j2ee", []))
 
         when:
@@ -90,7 +92,7 @@ class JwtServiceSpec extends Specification {
 
     def "期限切れトークンはparseAccessTokenで空を返す"() {
         given:
-        def expiredProperties = new JwtProperties("a" * 32, Duration.ofSeconds(-1), Duration.ofDays(7))
+        def expiredProperties = new JwtProperties(TestJwtSecrets.STRONG, Duration.ofSeconds(-1), Duration.ofDays(7))
         def expiredService = new JwtService(expiredProperties)
         def token = expiredService.generateAccessToken(new AuthenticatedUser(1L, "j2ee", []))
 

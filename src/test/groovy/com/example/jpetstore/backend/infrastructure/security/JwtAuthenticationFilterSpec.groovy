@@ -1,6 +1,7 @@
 package com.example.jpetstore.backend.infrastructure.security
 
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
+import com.example.jpetstore.backend.support.TestJwtSecrets
 import org.springframework.mock.web.MockFilterChain
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
@@ -14,7 +15,7 @@ import java.time.Duration
  */
 class JwtAuthenticationFilterSpec extends Specification {
 
-    def properties = new JwtProperties("a" * 32, Duration.ofMinutes(15), Duration.ofDays(7))
+    def properties = new JwtProperties(TestJwtSecrets.STRONG, Duration.ofMinutes(15), Duration.ofDays(7))
     def jwtService = new JwtService(properties)
     def cookieSupport = new AuthCookieSupport(true, "Strict")
     def filter = new JwtAuthenticationFilter(jwtService, cookieSupport)

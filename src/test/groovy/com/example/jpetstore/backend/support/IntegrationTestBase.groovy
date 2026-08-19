@@ -44,6 +44,7 @@ abstract class IntegrationTestBase extends Specification {
         registry.add("spring.flyway.password", MYSQL::getPassword)
         registry.add("spring.flyway.locations", () -> "classpath:flyway/sql")
         // 統合テスト専用の JWT 鍵（本番秘密ではない・実行時のみメモリ上に存在）。
-        registry.add("jwt.secret", () -> "integration-test-only-secret-key-32bytes-min")
+        // #38 AC2 の最小エントロピー検証（ユニーク文字数24以上）を満たす値を使う（TestJwtSecrets参照）。
+        registry.add("jwt.secret", () -> TestJwtSecrets.STRONG)
     }
 }

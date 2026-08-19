@@ -1,6 +1,7 @@
 package com.example.jpetstore.backend.config
 
 import com.example.jpetstore.backend.JpetstoreBackendApplication
+import com.example.jpetstore.backend.support.TestJwtSecrets
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.boot.WebApplicationType
 import spock.lang.Specification
@@ -40,7 +41,7 @@ class ApplicationBootFailFastSpec extends Specification {
         // SpringApplicationBuilder#properties() は defaultProperties（最低優先）扱いのため、
         // application.yml の "${JWT_SECRET}" プレースホルダに勝てない。System property として
         // 環境変数相当の優先度で注入する。
-        System.setProperty("JWT_SECRET", "a" * 32)
+        System.setProperty("JWT_SECRET", TestJwtSecrets.STRONG)
 
         when:
         new SpringApplicationBuilder(JpetstoreBackendApplication)
