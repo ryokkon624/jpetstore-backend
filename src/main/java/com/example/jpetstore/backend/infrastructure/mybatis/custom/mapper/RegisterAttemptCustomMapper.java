@@ -3,53 +3,59 @@ package com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
- * {@code t_register_attempt} への読み書き Mapper（#13 AC4/AC-neg2・SBD-6・{@code RegisterAttemptService}
- * から利用）。
+ * {@code t_register_attempt} への読み書き Mapper（#13 AC4/AC-neg2・#41 AC2/AC4・SBD-6・{@code
+ * RegisterAttemptService} から利用）。
  *
- * <p>{@code LoginAttemptCustomMapper}と同方式（アノテーション方式・{@code backend-conventions} §9）。{@link
- * #recordAttempt} は INSERT ... ON DUPLICATE KEY UPDATE による単文アトミック更新（並行リクエストでのカウンタ取りこぼしを防ぐ）。
- * ロック期間が既に経過している行への試行はカウンタを新規窓として1にリセットする。
+ * <p>#41: {@link LoginAttemptCustomMapper} と同じ2文イディオムへ置き換えた。判定（旧 {@code countActiveLock}）と 計数（旧
+ * {@code recordAttempt}）が別クエリに分離していた check-then-act 構造を解消し、登録処理の前にスロットを 原子的に確保する単一 UPDATE（{@link
+ * #acquireSlot}）へ統合した。(1) {@link #ensureRow} で行の存在を保証する no-op ON DUPLICATE KEY UPDATE（seed値はDDLの
+ * {@code DEFAULT} と一致する {@code attempt_count=0}）→ (2) {@link #acquireSlot} の条件付き UPDATE で枠確保可否を
+ * affected rows として返す。
  *
- * <p>{@link #countActiveLock} はロック判定を DB 側の {@code NOW(6)} で行う（クロックスキュー環境でも安全に判定するため。 {@code
+ * <p>{@link #acquireSlot} の SET 句は旧 {@code recordAttempt} の SET 句を一字も変えず移植したもの（{@link
+ * LoginAttemptCustomMapper#acquireSlot} と同じく MySQL の左→右評価に依存する {@code lock_until} 算出）。ロック判定は WHERE
+ * 句内の {@code lock_until <= NOW(6)} 比較により DB 側の時刻基準で行う（クロックスキュー環境でも安全に判定するため。 {@code
  * LoginAttemptCustomMapper}と同じ設計判断）。
  */
 @Mapper
 public interface RegisterAttemptCustomMapper {
 
-  @Select(
-      """
-      SELECT COUNT(*) FROM t_register_attempt
-       WHERE client_ip = #{clientIp} AND lock_until IS NOT NULL AND lock_until > NOW(6)
-      """)
-  int countActiveLock(@Param("clientIp") String clientIp);
-
-  /**
-   * 登録試行を記録する。行が無ければ新規作成（count=1）。行があれば、既存の {@code lock_until} が既に経過していれば新規窓として count=1
-   * にリセットし、そうでなければ count をインクリメントする。インクリメント後の count が {@code maxAttempts} 以上なら {@code lock_until} を
-   * {@code lockDurationSeconds} 秒先に設定し、そうでなければ {@code lock_until} は NULL のままにする。
-   */
   @Insert(
       """
       INSERT INTO t_register_attempt
         (client_ip, attempt_count, first_attempt_at, lock_until, create_program, update_program)
       VALUES
-        (#{clientIp}, 1, NOW(6), NULL, #{program}, #{program})
+        (#{clientIp}, 0, NOW(6), NULL, #{program}, #{program})
       ON DUPLICATE KEY UPDATE
-        attempt_count = IF(lock_until IS NOT NULL AND lock_until <= NOW(6),
-                            1,
-                            attempt_count + 1),
-        first_attempt_at = IF(lock_until IS NOT NULL AND lock_until <= NOW(6),
-                               NOW(6),
-                               first_attempt_at),
-        lock_until = IF(attempt_count >= #{maxAttempts},
-                         DATE_ADD(NOW(6), INTERVAL #{lockDurationSeconds} SECOND),
-                         NULL),
-        update_program = #{program}
+        attempt_count = attempt_count
       """)
-  int recordAttempt(
+  int ensureRow(@Param("clientIp") String clientIp, @Param("program") String program);
+
+  /**
+   * 登録処理の前にスロットを原子的に確保する。ロック中（WHERE不一致）なら affected rows==0 となり、呼び出し元は
+   * 登録処理へ進めずレート制限中として短絡する。affected rows==1 なら枠確保成功（新規窓リセット／通常インクリメント のいずれか。旧 {@code recordAttempt}
+   * と同一の意味論）。
+   */
+  @Update(
+      """
+      UPDATE t_register_attempt
+         SET attempt_count = IF(lock_until IS NOT NULL AND lock_until <= NOW(6),
+                                 1,
+                                 attempt_count + 1),
+             first_attempt_at = IF(lock_until IS NOT NULL AND lock_until <= NOW(6),
+                                    NOW(6),
+                                    first_attempt_at),
+             lock_until = IF(attempt_count >= #{maxAttempts},
+                              DATE_ADD(NOW(6), INTERVAL #{lockDurationSeconds} SECOND),
+                              NULL),
+             update_program = #{program}
+       WHERE client_ip = #{clientIp}
+         AND (lock_until IS NULL OR lock_until <= NOW(6))
+      """)
+  int acquireSlot(
       @Param("clientIp") String clientIp,
       @Param("maxAttempts") int maxAttempts,
       @Param("lockDurationSeconds") long lockDurationSeconds,

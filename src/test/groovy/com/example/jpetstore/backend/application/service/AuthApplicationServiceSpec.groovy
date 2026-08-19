@@ -16,9 +16,12 @@ import spock.lang.Specification
 import java.time.Duration
 
 /**
- * #20 AC1(SBD-6): レート制限/ロックアウトの前段ゲートが {@code AuthApplicationService.login} に
+ * #20 AC1(SBD-6)／#41 AC1(N4): レート制限/ロックアウトの前段ゲートが {@code AuthApplicationService.login} に
  * 正しく結線されていることを検証する（{@code LoginAttemptService} 自体のロジックは {@code
  * LoginAttemptServiceSpec} で検証済み。ここでは呼び出し順序・例外伝播のみを検証する）。
+ *
+ * <p>#41: {@code acquireAttemptSlotOrThrow} が authenticate() の前にスロットを確保するため、authenticate()
+ * が失敗しても追加の計数呼び出し（旧 {@code recordFailure}）は不要になった（枠確保の時点で既に消費済み）。
  */
 class AuthApplicationServiceSpec extends Specification {
 
@@ -35,9 +38,9 @@ class AuthApplicationServiceSpec extends Specification {
     AuthApplicationService service = new AuthApplicationService(
             authenticationManager, jwtService, cookieSupport, jwtProperties, loginAttemptService)
 
-    def "ロック中ならauthenticate()を呼ばずに短絡し、既存の誤資格と同一の例外をそのまま伝播する"() {
+    def "枠確保に失敗(ロック中)ならauthenticate()を呼ばずに短絡し、既存の誤資格と同一の例外をそのまま伝播する"() {
         given:
-        loginAttemptService.assertNotLocked("locked_user") >> { throw new BadCredentialsException("locked") }
+        loginAttemptService.acquireAttemptSlotOrThrow("locked_user") >> { throw new BadCredentialsException("locked") }
 
         when:
         service.login("locked_user", "whatever", response)
@@ -45,10 +48,10 @@ class AuthApplicationServiceSpec extends Specification {
         then:
         thrown(BadCredentialsException)
         0 * authenticationManager.authenticate(_)
-        0 * loginAttemptService.recordFailure(_)
+        0 * loginAttemptService.recordSuccess(_)
     }
 
-    def "authenticate失敗時はrecordFailureを呼び例外をそのまま伝播する"() {
+    def "authenticate失敗時は例外をそのまま伝播する(枠は既にacquireAttemptSlotOrThrowで消費済みのため追加の計数呼び出しは無い)"() {
         given:
         authenticationManager.authenticate(_ as UsernamePasswordAuthenticationToken) >> {
             throw new BadCredentialsException("bad creds")
@@ -59,8 +62,7 @@ class AuthApplicationServiceSpec extends Specification {
 
         then:
         thrown(BadCredentialsException)
-        1 * loginAttemptService.assertNotLocked("someone")
-        1 * loginAttemptService.recordFailure("someone")
+        1 * loginAttemptService.acquireAttemptSlotOrThrow("someone")
         0 * loginAttemptService.recordSuccess(_)
     }
 
@@ -80,7 +82,7 @@ class AuthApplicationServiceSpec extends Specification {
 
         then:
         result == user
-        1 * loginAttemptService.assertNotLocked("someone")
+        1 * loginAttemptService.acquireAttemptSlotOrThrow("someone")
         1 * loginAttemptService.recordSuccess("someone")
         1 * cookieSupport.writeAccessTokenCookie(response, "access-token", Duration.ofMinutes(15))
         1 * cookieSupport.writeRefreshTokenCookie(response, "refresh-token", Duration.ofDays(7))
