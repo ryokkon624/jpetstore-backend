@@ -4,7 +4,10 @@ import com.example.jpetstore.backend.domain.security.AuthenticatedUser;
 import com.example.jpetstore.backend.domain.security.CurrentUserProvider;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.entity.AuditLogCustomEntity;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AuditLogCustomMapper;
+import com.example.jpetstore.backend.infrastructure.security.AuditWriteQuotaService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,34 +23,59 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Mapper/Entity は {@code infrastructure.mybatis.custom} 配下の {@link AuditLogCustomMapper}/{@link
  * AuditLogCustomEntity}（カスタムマッパー規約準拠）。本クラス自身は監査という横断関心のファサードとして {@code
  * infrastructure.audit}（WHO自動付与と同じパッケージ）に留める。
+ *
+ * <p><b>#39 AC1（truncate）</b>: {@link #insert} で {@code action}/{@code targetType}/{@code
+ * targetId}/{@code actorUsername} を列幅内へ先頭側保持で切り詰める。AC1 が要求するのは {@code action} のみだが、他3列も同じ経路で INSERT
+ * 失敗しうるため意図的な防御多層化として3列とも対象にした（実装ノート参照）。
+ *
+ * <p><b>#39 AC2（best-effort）</b>: {@link #insert} 内の {@code mapper.insert} を例外保護し、記録失敗が
+ * 呼び出し元（セキュリティハンドラ等）へ伝播しないようにする。ただし SBD-14「記録する」宣言に対する後退を 最小化するため、握り潰さず必ずアプリログへ ERROR で残す（S2・{@code
+ * recordStateChange} の成功監査にも及ぶ）。
  */
 @Component
 public class AuditLogRecorder {
+
+  private static final Logger log = LoggerFactory.getLogger(AuditLogRecorder.class);
 
   private static final String EVENT_AUTHZ_FAILURE = "AUTHZ_FAILURE";
   private static final String EVENT_STATE_CHANGE = "STATE_CHANGE";
   private static final String RESULT_DENIED = "DENIED";
 
+  private static final int ACTION_MAX_LENGTH = 100;
+  private static final int TARGET_TYPE_MAX_LENGTH = 50;
+  private static final int TARGET_ID_MAX_LENGTH = 50;
+  private static final int ACTOR_USERNAME_MAX_LENGTH = 80;
+
   private final AuditLogCustomMapper mapper;
   private final CurrentUserProvider currentUserProvider;
   private final ObjectMapper objectMapper;
+  private final AuditWriteQuotaService auditWriteQuotaService;
 
   public AuditLogRecorder(
       AuditLogCustomMapper mapper,
       CurrentUserProvider currentUserProvider,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      AuditWriteQuotaService auditWriteQuotaService) {
     this.mapper = mapper;
     this.currentUserProvider = currentUserProvider;
     this.objectMapper = objectMapper;
+    this.auditWriteQuotaService = auditWriteQuotaService;
   }
 
   /**
    * 認可失敗（401/403）を記録する。{@code AccessDeniedHandler}/{@code AuthenticationEntryPoint} から
    * 呼ばれる想定。SecurityContext が空（未認証リクエストの拒否）の場合、actor は NULL になる （認可失敗時に ProgramContext も空になるため
    * create_program は "SYSTEM" が補完される。許容仕様）。
+   *
+   * <p>#39 AC3（N14）: 未認証（actor==null）由来の write のみ {@link AuditWriteQuotaService} で窓内上限を
+   * 掛ける。認証済みの403は無制限に記録する（理由は {@link AuditWriteQuotaService} javadoc 参照）。
    */
   public void recordAuthzFailure(String action, String reason, HttpServletRequest request) {
     AuthenticatedUser actor = currentUserProvider.currentUser().orElse(null);
+    String clientIp = clientIp(request);
+    if (actor == null && clientIp != null && !auditWriteQuotaService.tryAcquire(clientIp)) {
+      return; // 抑止(AuditWriteQuotaServiceがsuppressed_count+WARNログを記録済み・黙って消えない)
+    }
     insert(
         EVENT_AUTHZ_FAILURE,
         actor,
@@ -56,7 +84,7 @@ public class AuditLogRecorder {
         null,
         RESULT_DENIED,
         reason == null ? null : java.util.Map.of("reason", reason),
-        clientIp(request));
+        clientIp);
   }
 
   /** 状態変更（注文作成・account 編集等）を記録する。後続ドメイン Story がユースケースの呼び出し箇所で 呼ぶ想定（本 Story ではこの API を用意するところまで）。 */
@@ -93,14 +121,35 @@ public class AuditLogRecorder {
     AuditLogCustomEntity entity = new AuditLogCustomEntity();
     entity.setEventType(eventType);
     entity.setActorUserId(actor == null ? null : actor.userId());
-    entity.setActorUsername(actor == null ? null : actor.username());
-    entity.setAction(action);
-    entity.setTargetType(targetType);
-    entity.setTargetId(targetId);
+    entity.setActorUsername(
+        truncate(actor == null ? null : actor.username(), ACTOR_USERNAME_MAX_LENGTH));
+    entity.setAction(truncate(action, ACTION_MAX_LENGTH));
+    entity.setTargetType(truncate(targetType, TARGET_TYPE_MAX_LENGTH));
+    entity.setTargetId(truncate(targetId, TARGET_ID_MAX_LENGTH));
     entity.setResult(result);
     entity.setDetail(toJson(detail));
     entity.setClientIp(clientIp);
-    mapper.insert(entity);
+    try {
+      mapper.insert(entity);
+    } catch (RuntimeException e) {
+      // #39 AC2: 記録失敗を呼び出し元(セキュリティハンドラ等)へ伝播させない(best-effort)。
+      // SBD-14の記録宣言に対する後退を最小化するため、握り潰さず必ずアプリログへERRORで残す(S2)。
+      log.error(
+          "Failed to record audit log (eventType={}, action={}, targetType={}, targetId={})",
+          eventType,
+          entity.getAction(),
+          entity.getTargetType(),
+          entity.getTargetId(),
+          e);
+    }
+  }
+
+  /** {@code value} の先頭 {@code maxLength} 文字だけを残す（#39 AC1・DB列幅への溢れを防ぐ）。null はそのまま null。 */
+  private static String truncate(String value, int maxLength) {
+    if (value == null || value.length() <= maxLength) {
+      return value;
+    }
+    return value.substring(0, maxLength);
   }
 
   private String toJson(Object detail) {

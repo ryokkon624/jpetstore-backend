@@ -41,6 +41,9 @@ class OwnershipAuthorizationEndToEndSpec extends IntegrationTestBase {
 
     void setup() {
         jdbcTemplate.update("DELETE FROM t_audit_log")
+        // #39 AC3(F5): 未認証AUTHZ_FAILUREはAuditWriteQuotaの窓内上限対象のため、
+        // IT間で共有されるカウンタが本Specのアサーションを偽陰性化しないようテストごとにクリアする。
+        jdbcTemplate.update("DELETE FROM t_audit_write_quota")
     }
 
     private Cookie accessTokenCookie(Long userId, String username) {
