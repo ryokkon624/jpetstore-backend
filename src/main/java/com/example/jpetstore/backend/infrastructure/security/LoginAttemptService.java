@@ -4,6 +4,8 @@ import com.example.jpetstore.backend.infrastructure.audit.ProgramContext;
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.LoginAttemptCustomMapper;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * レート制限/ロックアウトの前段ゲート（#20 AC1・#41 AC1/AC3/AC4・SBD-6）。
@@ -46,7 +48,19 @@ public class LoginAttemptService {
    * 照合を行ロック内に抱えない（username単位で 全ログインが直列化する新たな DoS 面を作らないための設計判断。{@link #recordSuccess} の項参照）代償として、
    * 同一 username への max-attempts+1 本以上の「同時成功」ログインでは最後の1本が誤401になり得る。ただし {@link #recordSuccess} の
    * DELETE により次リクエストで即座に自己回復するため実害は極小である。
+   *
+   * <p><b>perf是正（{@code @Transactional(REQUIRES_NEW)}）</b>: {@link #ensureRow}（INSERT..ODKU）と
+   * {@link LoginAttemptCustomMapper#acquireSlot}（UPDATE）が個別に autocommit されコミットが2回発生していたため、 {@code
+   * RegisterAttemptService#acquireAttemptSlotOrThrow}/{@code AuditWriteQuotaService#tryAcquire}
+   * と同じく1トランザクションへまとめた。「bcrypt を行ロック内に抱えない」という設計意図は損なわれない: {@code AuthApplicationService.login}
+   * は本メソッドの **return 後**に {@code authenticationManager.authenticate}
+   * （bcrypt）を呼ぶため、本メソッドの行ロック・トランザクションは bcrypt 開始前に必ずコミット済みになる。
+   *
+   * <p><b>ロールバック安全性の不変条件（レート制限バイパス防止）</b>: 本メソッドが投げる {@link BadCredentialsException} は {@code
+   * affected == 0}（＝枠を確保**できなかった**）ときにのみ送出される。 ロールバックされるのは「枠を消費していないケース」だけであり、枠確保に成功した後で例外を投げる経路は
+   * 存在しない。**将来この不変条件を崩す変更（枠確保成功後に例外を投げる等）をしないこと**——崩すと、 枠消費がロールバックで巻き戻り、意図的な例外送出でレート制限を回避できてしまう。
    */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void acquireAttemptSlotOrThrow(String username) {
     mapper.ensureRow(username, currentProgram());
     int affected =
