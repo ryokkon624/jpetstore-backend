@@ -2,6 +2,7 @@ package com.example.jpetstore.backend.presentation.rest
 
 import com.example.jpetstore.backend.domain.security.AuthenticatedUser
 import com.example.jpetstore.backend.infrastructure.mybatis.custom.mapper.AuditLogCustomMapper
+import com.example.jpetstore.backend.infrastructure.security.AuditWriteQuotaService
 import com.example.jpetstore.backend.infrastructure.security.AuthCookieSupport
 import com.example.jpetstore.backend.infrastructure.security.JwtService
 import com.example.jpetstore.backend.support.IntegrationTestBase
@@ -45,6 +46,9 @@ class AuditSuppressionL3RegressionSpec extends IntegrationTestBase {
     @MockitoSpyBean
     AuditLogCustomMapper auditLogCustomMapper
 
+    @MockitoSpyBean
+    AuditWriteQuotaService auditWriteQuotaService
+
     void setup() {
         jdbcTemplate.update("DELETE FROM t_audit_log")
         jdbcTemplate.update("DELETE FROM t_audit_write_quota")
@@ -52,7 +56,7 @@ class AuditSuppressionL3RegressionSpec extends IntegrationTestBase {
 
     /** MockitoSpyBeanは同一Springコンテキストをテストメソッド間で共有するため、stubbingを毎回クリアする。 */
     void cleanup() {
-        Mockito.reset(auditLogCustomMapper)
+        Mockito.reset(auditLogCustomMapper, auditWriteQuotaService)
     }
 
     private Cookie accessTokenCookie(Long userId, String username) {
@@ -89,6 +93,19 @@ class AuditSuppressionL3RegressionSpec extends IntegrationTestBase {
         mockMvc.perform(get("/api/orders/909090909").cookie(accessTokenCookie(1L, "ac_neg2_user")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath('$.code').value("FORBIDDEN"))
+                .andExpect(jsonPath('$.path').exists())
+                .andExpect(jsonPath('$.timestamp').exists())
+    }
+
+    def "#39 AC2 fix(SM verification確定所見): quotaチェック自体が失敗しても未認証401の応答は本来のステータス/ErrorResponseで返る(fail-open e2e)"() {
+        given: "未認証(actor==null)経路でquotaチェックが例外を投げる状況を再現する(cleanup()でstubbingをリセット)"
+        Mockito.doThrow(new RuntimeException("connection pool exhausted"))
+                .when(auditWriteQuotaService).tryAcquire(any())
+
+        expect: "GlobalExceptionHandler/AuditingAuthenticationEntryPointからの例外送出・/errorディスパッチが起きず本来の401のまま"
+        mockMvc.perform(get("/api/secured/ping"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath('$.code').value("UNAUTHORIZED"))
                 .andExpect(jsonPath('$.path').exists())
                 .andExpect(jsonPath('$.timestamp').exists())
     }

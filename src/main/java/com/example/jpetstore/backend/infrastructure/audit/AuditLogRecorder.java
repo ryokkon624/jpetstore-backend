@@ -30,7 +30,9 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p><b>#39 AC2（best-effort）</b>: {@link #insert} 内の {@code mapper.insert} を例外保護し、記録失敗が
  * 呼び出し元（セキュリティハンドラ等）へ伝播しないようにする。ただし SBD-14「記録する」宣言に対する後退を 最小化するため、握り潰さず必ずアプリログへ ERROR で残す（S2・{@code
- * recordStateChange} の成功監査にも及ぶ）。
+ * recordStateChange} の成功監査にも及ぶ）。{@link #isWithinQuota} の quota チェック自体の例外も同じく best-effort
+ * （fail-open）で保護する（SM verification 確定所見: quota チェックの例外を素通りさせると、それ自体が
+ * セキュリティハンドラ内からの例外送出→`/error`ディスパッチという N2 と同一の失敗モードになってしまうため）。
  */
 @Component
 public class AuditLogRecorder {
@@ -68,12 +70,13 @@ public class AuditLogRecorder {
    * create_program は "SYSTEM" が補完される。許容仕様）。
    *
    * <p>#39 AC3（N14）: 未認証（actor==null）由来の write のみ {@link AuditWriteQuotaService} で窓内上限を
-   * 掛ける。認証済みの403は無制限に記録する（理由は {@link AuditWriteQuotaService} javadoc 参照）。
+   * 掛ける。認証済みの403は無制限に記録する（理由は {@link AuditWriteQuotaService} javadoc 参照）。quota
+   * チェック自体が例外を投げても本メソッドは正常復帰する（{@link #isWithinQuota} 参照）。
    */
   public void recordAuthzFailure(String action, String reason, HttpServletRequest request) {
     AuthenticatedUser actor = currentUserProvider.currentUser().orElse(null);
     String clientIp = clientIp(request);
-    if (actor == null && clientIp != null && !auditWriteQuotaService.tryAcquire(clientIp)) {
+    if (actor == null && clientIp != null && !isWithinQuota(clientIp)) {
       return; // 抑止(AuditWriteQuotaServiceがsuppressed_count+WARNログを記録済み・黙って消えない)
     }
     insert(
@@ -85,6 +88,32 @@ public class AuditLogRecorder {
         RESULT_DENIED,
         reason == null ? null : java.util.Map.of("reason", reason),
         clientIp);
+  }
+
+  /**
+   * {@link AuditWriteQuotaService#tryAcquire} を呼び、枠が確保できたか（quota 内か）を返す。
+   *
+   * <p><b>SM verification 確定所見（#39 AC2 未達の是正）</b>: {@code tryAcquire} は
+   * {@code @Transactional(REQUIRES_NEW)} で新規コネクション取得を伴うため、未認証フラッド時（＝まさに quota
+   * が守ろうとしている状況）にコネクションプール枯渇等で例外を投げやすい。これを素通りさせると、 {@link #recordAuthzFailure} の唯一の呼び出し元（{@code
+   * AuditingAccessDeniedHandler}/{@code AuditingAuthenticationEntryPoint}/{@code
+   * GlobalExceptionHandler}）内から例外が伝播し、{@code /error} への ERROR ディスパッチ経由で 403/401 が化ける・監査も残らない、という
+   * **#39 が修正対象にしている N2 と同一の失敗モード**を、トリガを「過大長URI」から「quotaのDBエラー」に変えただけで再現してしまう。
+   *
+   * <p>そのため **fail-open** とする: quota チェック自体が失敗した場合は「枠あり」とみなして監査記録へ進む （黙って落とさずアプリログへ ERROR
+   * は残す）。quota は可用性のための緩和策（N14 対策）にすぎず、監査記録 そのものは SBD-14 が要求するセキュリティ統制であるため、可用性側の失敗でセキュリティ側の記録を止める
+   * （fail-closed で return する）のは優先順位が逆転する。fail-closed にすると、quota の DB 障害がそのまま 新しい監査抑止経路になってしまう点にも注意。
+   */
+  private boolean isWithinQuota(String clientIp) {
+    try {
+      return auditWriteQuotaService.tryAcquire(clientIp);
+    } catch (RuntimeException e) {
+      log.error(
+          "Audit write quota check failed; proceeding with audit record (fail-open, clientIp={})",
+          clientIp,
+          e);
+      return true;
+    }
   }
 
   /** 状態変更（注文作成・account 編集等）を記録する。後続ドメイン Story がユースケースの呼び出し箇所で 呼ぶ想定（本 Story ではこの API を用意するところまで）。 */

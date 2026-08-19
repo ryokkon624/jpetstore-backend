@@ -101,4 +101,49 @@ class AuditLogRecorderBestEffortSpec extends Specification {
         then:
         appender.list.isEmpty()
     }
+
+    def "#39 AC2 fix(SM verification確定所見): auditWriteQuotaService.tryAcquireが例外を投げても呼び出し元へ伝播させない(fail-open)"() {
+        given: "未認証(actor==null)のためquotaチェックが呼ばれる状況で、tryAcquire自体が例外を投げる"
+        def failingQuotaService = Stub(AuditWriteQuotaService) {
+            tryAcquire(_) >> { throw new RuntimeException("connection pool exhausted") }
+        }
+        def recorderWithFailingQuota = new AuditLogRecorder(mapper, currentUserProvider, objectMapper, failingQuotaService)
+
+        when:
+        recorderWithFailingQuota.recordAuthzFailure("/api/orders/1", "denied", new MockHttpServletRequest())
+
+        then:
+        noExceptionThrown()
+    }
+
+    def "#39 AC2 fix: quotaチェック失敗時もfail-openで監査INSERTへ進む(監査を握り潰さない)"() {
+        given:
+        def failingQuotaService = Stub(AuditWriteQuotaService) {
+            tryAcquire(_) >> { throw new RuntimeException("connection pool exhausted") }
+        }
+        def recorderWithFailingQuota = new AuditLogRecorder(mapper, currentUserProvider, objectMapper, failingQuotaService)
+
+        when:
+        recorderWithFailingQuota.recordAuthzFailure("/api/orders/1", "denied", new MockHttpServletRequest())
+
+        then:
+        1 * mapper.insert(_) >> 1
+    }
+
+    def "#39 AC2 fix: quotaチェック失敗はアプリログにERRORとして残る(黙って消さない)"() {
+        given:
+        def failingQuotaService = Stub(AuditWriteQuotaService) {
+            tryAcquire(_) >> { throw new RuntimeException("connection pool exhausted") }
+        }
+        def recorderWithFailingQuota = new AuditLogRecorder(mapper, currentUserProvider, objectMapper, failingQuotaService)
+        mapper.insert(_) >> 1
+
+        when:
+        recorderWithFailingQuota.recordAuthzFailure("/api/orders/1", "denied", new MockHttpServletRequest())
+
+        then:
+        appender.list.any {
+            it.level == Level.ERROR && it.formattedMessage.contains("Audit write quota check failed")
+        }
+    }
 }
