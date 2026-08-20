@@ -1,5 +1,5 @@
 {
-  "scenario" : "order-single-item",
+  "scenario" : "order-multi-item",
   "expectation" : "EQUIVALENT",
   "divergenceId" : null,
   "divergentFields" : [ ],
@@ -10,14 +10,19 @@
   "snapshot" : {
     "outcome" : "SUCCESS",
     "inventoryDelta" : {
-      "EST-1" : -2
+      "EST-1" : -2,
+      "EST-4" : -3
     },
     "ordersCreated" : 1,
-    "orderTotal" : "33.00",
+    "orderTotal" : "88.50",
     "lines" : [ {
       "itemId" : "EST-1",
       "quantity" : 2,
       "unitPrice" : "16.50"
+    }, {
+      "itemId" : "EST-4",
+      "quantity" : 3,
+      "unitPrice" : "18.50"
     } ],
     "entries" : [ ]
   }

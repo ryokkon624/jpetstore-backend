@@ -1,0 +1,66 @@
+{
+  "scenario" : "products-by-category",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:10:06.195639500Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ {
+      "categoryId" : "BIRDS",
+      "productId" : "AV-CB-01"
+    }, {
+      "categoryId" : "BIRDS",
+      "productId" : "AV-SB-02"
+    }, {
+      "categoryId" : "CATS",
+      "productId" : "FL-DLH-02"
+    }, {
+      "categoryId" : "CATS",
+      "productId" : "FL-DSH-01"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-BD-01"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-CW-01"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-DL-01"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-PO-02"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-RT-01"
+    }, {
+      "categoryId" : "DOGS",
+      "productId" : "K9-RT-02"
+    }, {
+      "categoryId" : "FISH",
+      "productId" : "FI-FW-01"
+    }, {
+      "categoryId" : "FISH",
+      "productId" : "FI-FW-02"
+    }, {
+      "categoryId" : "FISH",
+      "productId" : "FI-SW-01"
+    }, {
+      "categoryId" : "FISH",
+      "productId" : "FI-SW-02"
+    }, {
+      "categoryId" : "REPTILES",
+      "productId" : "RP-LI-02"
+    }, {
+      "categoryId" : "REPTILES",
+      "productId" : "RP-SN-01"
+    } ]
+  }
+}

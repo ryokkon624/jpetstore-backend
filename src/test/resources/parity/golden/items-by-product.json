@@ -1,5 +1,5 @@
 {
-  "scenario" : "order-single-item",
+  "scenario" : "items-by-product",
   "expectation" : "EQUIVALENT",
   "divergenceId" : null,
   "divergentFields" : [ ],
@@ -8,17 +8,17 @@
     "capturedAt" : "2026-08-20T06:10:06.195639500Z"
   },
   "snapshot" : {
-    "outcome" : "SUCCESS",
-    "inventoryDelta" : {
-      "EST-1" : -2
-    },
-    "ordersCreated" : 1,
-    "orderTotal" : "33.00",
-    "lines" : [ {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ {
       "itemId" : "EST-1",
-      "quantity" : 2,
-      "unitPrice" : "16.50"
-    } ],
-    "entries" : [ ]
+      "listPrice" : "16.5"
+    }, {
+      "itemId" : "EST-2",
+      "listPrice" : "16.5"
+    } ]
   }
 }

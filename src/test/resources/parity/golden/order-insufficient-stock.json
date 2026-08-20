@@ -1,8 +1,8 @@
 {
-  "scenario" : "order-single-item",
-  "expectation" : "EQUIVALENT",
-  "divergenceId" : null,
-  "divergentFields" : [ ],
+  "scenario" : "order-insufficient-stock",
+  "expectation" : "INTENDED_DIVERGENCE(ID-1)",
+  "divergenceId" : "ID-1",
+  "divergentFields" : [ "outcome", "inventoryDelta[EST-1]", "ordersCreated", "orderTotal", "lines[EST-1].quantity", "lines[EST-1].unitPrice" ],
   "capturedFrom" : {
     "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
     "capturedAt" : "2026-08-20T06:10:06.195639500Z"
