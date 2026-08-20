@@ -12,13 +12,16 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.crypto.password.PasswordEncoder
 import spock.lang.Tag
+import spock.lang.Unroll
 
 /**
- * W1（{@code order-single-item}）の新側verify（#48 AC9・AC12・dual-tag）。
+ * 注文確定系（W1/W2/W3）の新側verify（#48 AC9・AC12・#49 AC4/AC5・dual-tag）。
  *
  * <p>コミット済みgolden（legacy採取済み）とのみ比較する。legacyの起動は不要（AC12）。
  * {@code USER_PRIMARY}（D3）は本specのフィクスチャで {@code m_account}/{@code m_signon} へ
  * {@code demo_user}/{@code Sprint3-DemoLogin!26} をINSERTして用意する（{@code R__test_user.sql}は同期しない）。
+ * W1={@code order-single-item}(EQUIVALENT)・W2={@code order-multi-item}(EQUIVALENT)・
+ * W3={@code order-insufficient-stock}(INTENDED_DIVERGENCE(ID-1))。
  */
 @Tag("integration")
 @Tag("parity")
@@ -85,19 +88,23 @@ class OrderParitySpec extends ParityIntegrationTestBase {
         jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", USERNAME)
     }
 
-    def "W1(order-single-item): 新側がcommit済みgoldenとEQUIVALENTである(#48 AC9/AC12)"() {
+    @Unroll
+    def "#scenarioId: 新側がcommit済みgoldenと宣言どおりの結果になる(#48 AC9/AC12・#49 AC7)"() {
         given:
-        ParityGolden golden = ParityGoldenIO.readFromClasspath("order-single-item")
+        ParityGolden golden = ParityGoldenIO.readFromClasspath(scenarioId)
         NewDbReader db = new NewDbReader(jdbcTemplate)
         NewScenarioRunner runner = new NewScenarioRunner(http, db, userId)
 
         when:
-        ParitySnapshot actual = runner.run("order-single-item")
+        ParitySnapshot actual = runner.run(scenarioId)
         def result = ParityComparator.compare(
                 golden.scenario, golden.expectation, golden.divergentFields, golden.snapshot, actual)
 
         then:
         result.pass
         // 失敗時はresult.messageにフィールド単位の差分(field=... golden(legacy)=... actual(new)=...)が出る(AC-neg1)
+
+        where:
+        scenarioId << ["order-single-item", "order-multi-item", "order-insufficient-stock"]
     }
 }
