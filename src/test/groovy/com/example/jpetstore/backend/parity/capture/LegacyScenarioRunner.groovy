@@ -26,24 +26,39 @@ class LegacyScenarioRunner {
         this.db = db
     }
 
-    ParitySnapshot run(String scenarioId) {
+    /**
+     * captureの戻り値。{@code preconditions}はcanonical比較の対象外のメタ情報
+     * （SM verification対応(c)・golden {@code snapshot}には入れず{@code capturedFrom}と同階層に置く）。
+     * ほとんどのシナリオでは{@code null}のまま（W3のみ使用）。
+     */
+    static class CaptureResult {
+        final ParitySnapshot snapshot
+        final Map<String, Map<String, Object>> preconditions
+
+        CaptureResult(ParitySnapshot snapshot, Map<String, Map<String, Object>> preconditions = null) {
+            this.snapshot = snapshot
+            this.preconditions = preconditions
+        }
+    }
+
+    CaptureResult run(String scenarioId) {
         switch (scenarioId) {
             case "order-single-item":
-                return placeOrder(["EST-1": 2], true)
+                return new CaptureResult(placeOrder(["EST-1": 2], true))
             case "categories":
-                return categories()
+                return new CaptureResult(categories())
             case "products-by-category":
-                return productsByCategory()
+                return new CaptureResult(productsByCategory())
             case "items-by-product":
-                return itemsByProduct()
+                return new CaptureResult(itemsByProduct())
             case "item-detail":
-                return itemDetail()
+                return new CaptureResult(itemDetail())
             case "search-basic":
-                return search(SEARCH_BASIC_QUERIES)
+                return new CaptureResult(search(SEARCH_BASIC_QUERIES))
             case "search-wildcard":
-                return search(SEARCH_WILDCARD_QUERIES)
+                return new CaptureResult(search(SEARCH_WILDCARD_QUERIES))
             case "order-multi-item":
-                return placeOrder(["EST-1": 2, "EST-4": 3], true)
+                return new CaptureResult(placeOrder(["EST-1": 2, "EST-4": 3], true))
             case "order-insufficient-stock":
                 return orderInsufficientStock()
             default:
@@ -133,11 +148,37 @@ class LegacyScenarioRunner {
     /**
      * W3: 在庫不足(在庫を注文数未満へ強制した状態でEST-1x2を注文)。旧は在庫ガード無し(ID-1)のため成功し
      * 在庫がマイナスになる。**採取順の最後に置き、後始末(復元)は行わない**(D2・コンテナ再作成に委ねる)。
+     *
+     * <p>SM verification対応(a)(b): 前処理UPDATEが黙って0行になっても（itemId不一致・表定義変更等）
+     * legacyは在庫が変わらず注文が成功するだけで、goldenは「在庫が十分な通常成功ケース」とバイト同一に
+     * なりうる（ID-1の観測点が静かに失われる）。**前提（在庫&lt;注文数）と結果（在庫&lt;0）を実際にDBへ
+     * 問い合わせて検証し、満たさなければgoldenを書き出さずにfailさせる**。検証した実測値は
+     * {@code preconditions}としてgoldenのメタ情報へ残す（(c)・snapshotには入れずcanonical比較対象外）。
      */
-    private ParitySnapshot orderInsufficientStock() {
+    private CaptureResult orderInsufficientStock() {
         String itemId = "EST-1"
-        db.restoreInventoryQty(itemId, 1) // 前処理: 在庫を注文数(2)未満へ強制セット(両側で実施・新側はNewScenarioRunner)
-        return placeOrder([(itemId): 2], false)
+        int forcedQty = 1
+        int orderQty = 2
+        db.restoreInventoryQty(itemId, forcedQty) // 前処理: 在庫を注文数未満へ強制セット(affected rows検査込み)
+
+        int qtyBeforeOrder = db.inventoryQty(itemId)
+        if (qtyBeforeOrder >= orderQty) {
+            throw new IllegalStateException(
+                    "W3(order-insufficient-stock)の前提が不成立: itemId=${itemId}の在庫=${qtyBeforeOrder}が" +
+                            "注文数${orderQty}以上(在庫不足の状態を再現できていない)。goldenは書き出さない。")
+        }
+
+        ParitySnapshot snapshot = placeOrder([(itemId): orderQty], false)
+
+        int qtyAfterOrder = db.inventoryQty(itemId)
+        if (qtyAfterOrder >= 0) {
+            throw new IllegalStateException(
+                    "W3(order-insufficient-stock)のID-1実証が不成立: itemId=${itemId}の注文後在庫=" +
+                            "${qtyAfterOrder}が0以上(旧の無条件減算でマイナス化するはずが実測されなかった)。" +
+                            "goldenは書き出さない。")
+        }
+
+        return new CaptureResult(snapshot, [(itemId): [qtyBefore: qtyBeforeOrder, qtyAfter: qtyAfterOrder]])
     }
 
     /**

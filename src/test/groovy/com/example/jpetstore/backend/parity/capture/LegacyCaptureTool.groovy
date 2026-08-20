@@ -3,7 +3,6 @@ package com.example.jpetstore.backend.parity.capture
 import com.example.jpetstore.backend.parity.ParityScenarios
 import com.example.jpetstore.backend.parity.canonical.ParityGolden
 import com.example.jpetstore.backend.parity.canonical.ParityGoldenIO
-import com.example.jpetstore.backend.parity.canonical.ParitySnapshot
 
 import java.time.Instant
 import java.util.regex.Matcher
@@ -39,10 +38,10 @@ class LegacyCaptureTool {
             LegacyScenarioRunner runner = new LegacyScenarioRunner(http, db)
             ParityScenarios.ALL.each { ParityScenarios.Scenario scenario ->
                 println("[captureGolden] running ${scenario.id} ...")
+                LegacyScenarioRunner.CaptureResult result = runner.run(scenario.id)
                 // golden JSONは常に正規化済みの値で保存する(design.mdの例=scale(2)/キー昇順と一致させ、
                 // 差分レビュー時に人が読んでそのまま信用できる状態にする。比較自体はComparator側でも
                 // 改めてnormalize()するため、ここでの正規化は表示上の一貫性のため)。
-                ParitySnapshot snapshot = runner.run(scenario.id).normalize()
                 ParityGolden golden = new ParityGolden(
                         scenario: scenario.id,
                         expectation: scenario.expectation,
@@ -50,7 +49,8 @@ class LegacyCaptureTool {
                         divergentFields: scenario.divergentFields,
                         capturedFrom: new ParityGolden.CapturedFrom(
                                 legacyCommit: legacyCommit, capturedAt: capturedAt),
-                        snapshot: snapshot)
+                        preconditions: result.preconditions,
+                        snapshot: result.snapshot.normalize())
                 File file = new File(goldenDir, "${scenario.id}.json")
                 ParityGoldenIO.writeToFile(golden, file)
                 println("[captureGolden] wrote ${file} (expectation=${scenario.expectation})")

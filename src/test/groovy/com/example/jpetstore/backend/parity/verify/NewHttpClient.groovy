@@ -110,6 +110,8 @@ class NewHttpClient {
             String firstPair = header.split(";", 2)[0]
             int eq = firstPair.indexOf('=')
             if (eq <= 0) {
+                // 不正な形式のSet-Cookieを1件スキップして次のヘッダへ進む(.each{}内のreturnはcontinue相当
+                // ＝正しい実装。ensureCsrfTokenのループ抜けバグとは意味論が逆なので機械的に統一しないこと)。
                 return
             }
             String name = firstPair.substring(0, eq).trim()

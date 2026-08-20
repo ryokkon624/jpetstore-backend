@@ -54,6 +54,8 @@ class LegacyHttpClient {
             String firstPair = header.split(";", 2)[0]
             int eq = firstPair.indexOf('=')
             if (eq <= 0) {
+                // 不正な形式のSet-Cookieを1件スキップして次のヘッダへ進む(.each{}内のreturnはcontinue相当
+                // ＝正しい実装。verify.NewHttpClient#ensureCsrfTokenのループ抜けバグとは意味論が逆)。
                 return
             }
             String name = firstPair.substring(0, eq).trim()

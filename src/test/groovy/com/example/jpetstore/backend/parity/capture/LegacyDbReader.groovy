@@ -28,8 +28,18 @@ class LegacyDbReader implements Closeable {
         return (queryScalar("SELECT QTY FROM INVENTORY WHERE ITEMID = ?", itemId) as Number).intValue()
     }
 
+    /**
+     * 在庫を復元/セットする。affected rowsを検査し、**0行なら例外でfailする**
+     * （SM verification対応: itemId不一致・表名/列名変更等でUPDATEが黙って0行になり、
+     * W3のID-1実証（在庫マイナス化）の前提が静かに崩れる経路を塞ぐ）。
+     */
     void restoreInventoryQty(String itemId, int qty) {
-        update("UPDATE INVENTORY SET QTY = ? WHERE ITEMID = ?", qty, itemId)
+        int affected = update("UPDATE INVENTORY SET QTY = ? WHERE ITEMID = ?", qty, itemId)
+        if (affected != 1) {
+            throw new IllegalStateException(
+                    "restoreInventoryQty(itemId=${itemId}, qty=${qty})の更新行数が${affected}(期待値=1)。" +
+                            "itemIdの不一致や表定義の変更等でUPDATEが対象行に当たっていない可能性がある。")
+        }
     }
 
     long maxOrderId() {
@@ -126,11 +136,11 @@ class LegacyDbReader implements Closeable {
         return rows
     }
 
-    private void update(String sql, Object... params) {
+    private int update(String sql, Object... params) {
         PreparedStatement ps = connection.prepareStatement(sql)
         try {
             bind(ps, params)
-            ps.executeUpdate()
+            return ps.executeUpdate()
         } finally {
             ps.close()
         }
