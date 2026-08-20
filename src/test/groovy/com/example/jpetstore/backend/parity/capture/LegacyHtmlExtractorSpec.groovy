@@ -62,4 +62,62 @@ class LegacyHtmlExtractorSpec extends Specification {
         LegacyHtmlExtractor.hasNextPage('<a href="viewCategory.do?categoryId=FISH&page=next">Next</a>')
         !LegacyHtmlExtractor.hasNextPage('<p>no more pages</p>')
     }
+
+    def "extractSelectOptionsはselect内のoption値を出現順で抽出する(#49 R1・IncludeAccountFields.jsp相当)"() {
+        given: "NewAccountForm.jsp相当(languagesセレクトと紛れないよう対象selectのみ拾う)"
+        String html = '''
+            <select name="workingAccountForm" property="account.languagePreference">
+              <option value="english">English</option>
+            </select>
+            <select name="account.favouriteCategoryId">
+              <option value="FISH">Fish</option>
+              <option value="DOGS">Dogs</option>
+              <option value="REPTILES">Reptiles</option>
+              <option value="CATS">Cats</option>
+              <option value="BIRDS">Birds</option>
+            </select>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractSelectOptions(html, "account.favouriteCategoryId") ==
+                ["FISH", "DOGS", "REPTILES", "CATS", "BIRDS"]
+    }
+
+    def "extractSelectOptionsは対象selectが無ければ空リストを返す"() {
+        expect:
+        LegacyHtmlExtractor.extractSelectOptions("<p>no select here</p>", "account.favouriteCategoryId") == []
+    }
+
+    def "extractItemRowsはitemIdとlistPriceを1行ずつ抽出する(#49 R3・Product.jsp実機の生の数値出力)"() {
+        given: "Product.jsp相当の行(実機ではfmt:formatNumberが効かずドル記号無し・末尾ゼロ無しの生数値になる＝実測)"
+        String html = '''
+            <tr bgcolor="#FFFF88">
+            <td><b>
+            <a href="/jpetstore/shop/viewItem.do;jsessionid=ABC?itemId=EST-1">
+              EST-1
+            </a></b></td>
+            <td>FI-SW-01</td>
+            <td>Large Angelfish</td>
+            <td>16.5</td>
+            <td><a href="/jpetstore/shop/addItemToCart.do?workingItemId=EST-1"><img/></a></td>
+            </tr>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractItemRows(html) == [[itemId: "EST-1", listPrice: "16.5"]]
+    }
+
+    def "extractItemRowsは説明文セルの数字混じりテキストを誤って価格と判定しない(セル内容が数値のみの場合だけ拾う)"() {
+        given: "説明文セルに数字が混ざっていても、独立した<td>数値</td>のセルのみを価格として拾う"
+        String html = '''
+            <tr bgcolor="#FFFF88">
+            <td><a href="viewItem.do?itemId=EST-9">EST-9</a></td>
+            <td>Model 007 Special</td>
+            <td>93.5</td>
+            </tr>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractItemRows(html) == [[itemId: "EST-9", listPrice: "93.5"]]
+    }
 }

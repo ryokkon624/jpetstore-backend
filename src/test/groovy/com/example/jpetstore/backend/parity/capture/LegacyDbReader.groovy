@@ -37,6 +37,16 @@ class LegacyDbReader implements Closeable {
         return result == null ? 0L : (result as Number).longValue()
     }
 
+    /**
+     * 注文の総件数。{@code ordersCreated}（canonical）は本メソッドの前後差分で算出する
+     * （{@link #maxOrderId()}の差分は採番機構がグローバルなため「件数」と一致しない場合がある。
+     * legacy側はordernumシーケンスを毎回復元するため実害は無いが、新側〔MySQL AUTO_INCREMENT〕との
+     * 対称性のためCOUNTベースに統一する）。
+     */
+    long orderCount() {
+        return (queryScalar("SELECT COUNT(*) FROM ORDERS") as Number).longValue()
+    }
+
     Map<String, Object> orderRow(long orderId) {
         return queryRow("SELECT ORDERID, TOTALPRICE FROM ORDERS WHERE ORDERID = ?", orderId)
     }
@@ -51,6 +61,17 @@ class LegacyDbReader implements Closeable {
         update("DELETE FROM LINEITEM WHERE ORDERID > ?", baselineOrderId)
         update("DELETE FROM ORDERSTATUS WHERE ORDERID > ?", baselineOrderId)
         update("DELETE FROM ORDERS WHERE ORDERID > ?", baselineOrderId)
+    }
+
+    /**
+     * itemId -&gt; 商品名（{@code ITEM JOIN PRODUCT}）。R4（アイテム詳細）でJSPの表示テキストが
+     * attribute群と連結されておりproductNameだけを正規表現で安全に切り出せないため、DB直読みで
+     * 代替する（design.md §6-2「DB直読みで代替できる範囲はDBを優先する」）。
+     */
+    String productNameForItem(String itemId) {
+        return queryScalar(
+                "SELECT P.NAME FROM ITEM I JOIN PRODUCT P ON I.PRODUCTID = P.PRODUCTID WHERE I.ITEMID = ?",
+                itemId) as String
     }
 
     long sequenceNextId(String name) {

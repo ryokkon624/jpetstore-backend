@@ -28,6 +28,16 @@ class NewDbReader {
         return jdbcTemplate.queryForObject("SELECT MAX(order_id) FROM t_order WHERE user_id = ?", Long, userId)
     }
 
+    /**
+     * 本人の注文件数。{@code ordersCreated}（canonical）は本メソッドの前後差分で算出する
+     * （{@code order_id}はMySQLのAUTO_INCREMENTでテストスイート全体を跨いだグローバル採番のため、
+     * {@link #maxOrderId}の差分は「新規作成件数」と一致しない＝{@code capture.LegacyDbReader}の
+     * javadoc参照）。
+     */
+    long orderCount(long userId) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM t_order WHERE user_id = ?", Long, userId)
+    }
+
     Map<String, Object> orderRow(long orderId) {
         return jdbcTemplate.queryForMap("SELECT order_id, total_price FROM t_order WHERE order_id = ?", orderId)
     }
