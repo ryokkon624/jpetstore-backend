@@ -1,0 +1,26 @@
+{
+  "scenario" : "order-detail-missing",
+  "expectation" : "INTENDED_DIVERGENCE(ID-14)",
+  "divergenceId" : "ID-14",
+  "divergentFields" : [ "httpStatus", "stackTraceExposed" ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-21T04:36:55.639377400Z"
+  },
+  "preconditions" : {
+    "999999999" : {
+      "orderExists" : false,
+      "legacyExceptionClass" : "java.lang.NullPointerException"
+    }
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ ],
+    "httpStatus" : 500,
+    "stackTraceExposed" : true
+  }
+}

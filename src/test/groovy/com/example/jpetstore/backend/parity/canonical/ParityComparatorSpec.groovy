@@ -93,4 +93,91 @@ class ParityComparatorSpec extends Specification {
         result.message.contains("宣言外の差分")
         result.message.contains("ordersCreated")
     }
+
+    // ---- #51 T1: アカウント系canonicalフィールドの差分粒度(AC6) ----
+
+    def "accountはキー単位で差分が出る(account[email]粒度・inventoryDelta[EST-1]の先例踏襲)"() {
+        given:
+        def golden = new ParitySnapshot(account: ["username": "parity_w4", "email": "old@example.com"])
+        def actual = new ParitySnapshot(account: ["username": "parity_w4", "email": "new@example.com"])
+
+        when:
+        def result = ParityComparator.compare("account-register", "EQUIVALENT", [], golden, actual)
+
+        then:
+        !result.pass
+        result.diffs.size() == 1
+        result.diffs[0].field == "account[email]"
+        result.diffs[0].legacyValue == "old@example.com"
+        result.diffs[0].newValue == "new@example.com"
+    }
+
+    def "account/accountsCreatedが一致すればEQUIVALENTはpassする"() {
+        given:
+        def account = ["username": "parity_w4", "email": "a@example.com"]
+        def golden = new ParitySnapshot(account: account, accountsCreated: 1)
+        def actual = new ParitySnapshot(account: new HashMap<>(account), accountsCreated: 1)
+
+        expect:
+        ParityComparator.compare("account-register", "EQUIVALENT", [], golden, actual).pass
+    }
+
+    def "accountsCreatedの差分はスカラとして検出される"() {
+        given:
+        def golden = new ParitySnapshot(accountsCreated: 1)
+        def actual = new ParitySnapshot(accountsCreated: 0)
+
+        when:
+        def result = ParityComparator.compare("account-register", "EQUIVALENT", [], golden, actual)
+
+        then:
+        !result.pass
+        result.diffs*.field == ["accountsCreated"]
+    }
+
+    def "R8b: httpStatus/stackTraceExposedがdivergentFieldsと完全一致すればpassする(SM-3・ID-14の証拠固定化)"() {
+        given:
+        def golden = new ParitySnapshot(httpStatus: 500, stackTraceExposed: true)
+        def actual = new ParitySnapshot(httpStatus: 403, stackTraceExposed: false)
+
+        when:
+        def result = ParityComparator.compare(
+                "order-detail-missing", "INTENDED_DIVERGENCE(ID-14)",
+                ["httpStatus", "stackTraceExposed"], golden, actual)
+
+        then:
+        result.pass
+        result.diffs*.field as Set == ["httpStatus", "stackTraceExposed"] as Set
+    }
+
+    def "R8b: 旧が500+スタックトレース露出のままなら宣言と実測が一致せずfailする(台帳の形骸化)"() {
+        given:
+        def golden = new ParitySnapshot(httpStatus: 500, stackTraceExposed: true)
+        def actual = new ParitySnapshot(httpStatus: 500, stackTraceExposed: true)
+
+        when:
+        def result = ParityComparator.compare(
+                "order-detail-missing", "INTENDED_DIVERGENCE(ID-14)",
+                ["httpStatus", "stackTraceExposed"], golden, actual)
+
+        then:
+        !result.pass
+        result.message.contains("台帳の形骸化")
+    }
+
+    def "R8a: lines[EST-1].productNameの差分がdivergentFieldsと一致すればpassする(Q6・ID-24)"() {
+        given:
+        def golden = new ParitySnapshot(lines: [
+                new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50", productName: "")])
+        def actual = new ParitySnapshot(lines: [
+                new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50", productName: "Angelfish")])
+
+        when:
+        def result = ParityComparator.compare(
+                "order-detail-own", "INTENDED_DIVERGENCE(ID-24)", ["lines[EST-1].productName"], golden, actual)
+
+        then:
+        result.pass
+        result.diffs*.field == ["lines[EST-1].productName"]
+    }
 }

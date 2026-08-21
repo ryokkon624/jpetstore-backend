@@ -1,5 +1,5 @@
 {
-  "scenario" : "categories",
+  "scenario" : "cart-boundary",
   "expectation" : "EQUIVALENT",
   "divergenceId" : null,
   "divergentFields" : [ ],
@@ -13,16 +13,6 @@
     "ordersCreated" : null,
     "orderTotal" : null,
     "lines" : [ ],
-    "entries" : [ {
-      "categoryId" : "BIRDS"
-    }, {
-      "categoryId" : "CATS"
-    }, {
-      "categoryId" : "DOGS"
-    }, {
-      "categoryId" : "FISH"
-    }, {
-      "categoryId" : "REPTILES"
-    } ]
+    "entries" : [ ]
   }
 }

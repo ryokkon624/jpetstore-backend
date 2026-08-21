@@ -81,4 +81,61 @@ class ParitySnapshotSpec extends Specification {
         new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50") ==
                 new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50")
     }
+
+    // ---- #51 T1: アカウント系canonicalフィールドの正規化 ----
+
+    def "accountはキー昇順のTreeMapへ正規化される(AC1・確定1のcanonical14項目)"() {
+        given:
+        def snapshot = new ParitySnapshot(account: ["username": "parity_w4", "email": "a@example.com"])
+
+        when:
+        def normalized = snapshot.normalize()
+
+        then:
+        normalized.account.keySet() as List == ["email", "username"]
+        normalized.account == ["email": "a@example.com", "username": "parity_w4"]
+    }
+
+    def "accountが未設定(null)でも正規化は空Mapを返す(他シナリオへのノイズ防止)"() {
+        given:
+        def snapshot = new ParitySnapshot()
+
+        when:
+        def normalized = snapshot.normalize()
+
+        then:
+        normalized.account == [:]
+    }
+
+    def "accountsCreated/httpStatus/stackTraceExposedはそのまま保持される(スカラ比較用)"() {
+        given:
+        def snapshot = new ParitySnapshot(accountsCreated: 1, httpStatus: 403, stackTraceExposed: true)
+
+        when:
+        def normalized = snapshot.normalize()
+
+        then:
+        normalized.accountsCreated == 1
+        normalized.httpStatus == 403
+        normalized.stackTraceExposed == true
+    }
+
+    def "Lineのproductnameは正規化で保持される(Q6・ID-24の観測点)"() {
+        given:
+        def snapshot = new ParitySnapshot(lines: [
+                new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50", productName: ""),
+        ])
+
+        when:
+        def normalized = snapshot.normalize()
+
+        then:
+        normalized.lines[0].productName == ""
+    }
+
+    def "同一itemId/quantity/unitPriceでもproductNameが違えばLineは等価ではない(Q6の差分検知に必要)"() {
+        expect:
+        new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50", productName: "") !=
+                new ParitySnapshot.Line(itemId: "EST-1", quantity: 2, unitPrice: "16.50", productName: "Angelfish")
+    }
 }

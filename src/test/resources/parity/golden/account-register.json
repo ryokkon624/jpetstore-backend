@@ -1,0 +1,35 @@
+{
+  "scenario" : "account-register",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-21T04:36:55.639377400Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ ],
+    "account" : {
+      "address1" : "1 Parity Way",
+      "address2" : "",
+      "city" : "Palo Alto",
+      "country" : "USA",
+      "email" : "parity.w4@example.com",
+      "favoriteCategoryId" : "FISH",
+      "firstName" : "Parity",
+      "languagePreference" : "english",
+      "lastName" : "W4",
+      "phone" : "555-0104",
+      "postalCode" : "94303",
+      "state" : "CA",
+      "status" : "OK",
+      "username" : "parity_w4"
+    },
+    "accountsCreated" : 1
+  }
+}

@@ -45,6 +45,25 @@ class ParityScenarios {
             new Scenario("search-wildcard", "INTENDED_DIVERGENCE(ID-29)", ["entries"]),
             // #49 状態変更系（AC4/AC5）
             new Scenario("order-multi-item", EQUIVALENT),
+            // #51 アカウント系（AC1/AC2・SM-1で3ケースに訂正）
+            new Scenario("account-register", EQUIVALENT), // W4
+            new Scenario("account-edit-nopw", EQUIVALENT), // W5a
+            new Scenario("account-edit-pw", EQUIVALENT), // W5b
+            new Scenario("account-edit-pwfield-absent", EQUIVALENT), // W5c
+            // #51 注文履歴照会（AC3）
+            new Scenario("orders-list", EQUIVALENT), // R7
+            // R8a: Issueスコープ表はEQUIVALENTだが、Q6でINTENDED_DIVERGENCE(ID-24)へ意図的に変更した
+            // (旧はLineItem.itemが埋まらずproductNameが空になる。値として比較可能なため正規化除外ではなく
+            // 観測点として宣言する。DEVQ6詳細はmemory/dev/short_term.md参照)。
+            new Scenario("order-detail-own", "INTENDED_DIVERGENCE(ID-24)",
+                    ["lines[EST-1].productName"]), // R8a
+            // R8b: 旧はViewOrderActionのgetOrder()未nullチェックによりNPE->500+スタックトレース露出。
+            // 新はOrderApplicationService#getOrderが不存在/非所有を同一のAccessDeniedExceptionにし
+            // GlobalExceptionHandlerが403へ正規化する(Q1: 404ではなく403。ID-14の趣旨=露出なしは403でも成立)。
+            new Scenario("order-detail-missing", "INTENDED_DIVERGENCE(ID-14)",
+                    ["httpStatus", "stackTraceExposed"]), // R8b
+            // #51 カート境界値（AC4・優先度は最後）
+            new Scenario("cart-boundary", EQUIVALENT),
             // 旧は成功し在庫デルタ/注文件数/合計/明細を持つが、新は失敗しこれらがすべて空になるため、
             // outcome/inventoryDeltaだけでなく成功時専用フィールド全てが宣言外の差分として扱われて
             // しまわないよう明示的に列挙する(Q4: 宣言と実測の完全一致が要求されるため)。

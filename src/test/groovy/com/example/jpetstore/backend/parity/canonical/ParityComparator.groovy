@@ -105,6 +105,24 @@ class ParityComparator {
         if (g.orderTotal != a.orderTotal) {
             diffs << new FieldDiff("orderTotal", "${g.orderTotal}", "${a.orderTotal}")
         }
+        if (g.accountsCreated != a.accountsCreated) {
+            diffs << new FieldDiff("accountsCreated", "${g.accountsCreated}", "${a.accountsCreated}")
+        }
+        if (g.httpStatus != a.httpStatus) {
+            diffs << new FieldDiff("httpStatus", "${g.httpStatus}", "${a.httpStatus}")
+        }
+        if (g.stackTraceExposed != a.stackTraceExposed) {
+            diffs << new FieldDiff("stackTraceExposed", "${g.stackTraceExposed}", "${a.stackTraceExposed}")
+        }
+
+        Set<String> accountKeys = (g.account.keySet() + a.account.keySet())
+        accountKeys.sort().each { String key ->
+            String gv = g.account[key]
+            String av = a.account[key]
+            if (gv != av) {
+                diffs << new FieldDiff("account[${key}]", "${gv}", "${av}")
+            }
+        }
 
         Set<String> itemIds = (g.inventoryDelta.keySet() + a.inventoryDelta.keySet())
         itemIds.sort().each { String itemId ->
@@ -124,6 +142,9 @@ class ParityComparator {
             }
             if (gl?.unitPrice != al?.unitPrice) {
                 diffs << new FieldDiff("lines[${itemId}].unitPrice", "${gl?.unitPrice}", "${al?.unitPrice}")
+            }
+            if (gl?.productName != al?.productName) {
+                diffs << new FieldDiff("lines[${itemId}].productName", "${gl?.productName}", "${al?.productName}")
             }
         }
 

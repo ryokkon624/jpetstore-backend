@@ -120,4 +120,130 @@ class LegacyHtmlExtractorSpec extends Specification {
         expect:
         LegacyHtmlExtractor.extractItemRows(html) == [[itemId: "EST-9", listPrice: "93.5"]]
     }
+
+    // ---- #51 T2: 注文履歴照会(R7/R8a/R8b)の抽出 ----
+
+    def "extractOrderListRowsはorderIdとtotalPriceを1行ずつ抽出する(#51 R7・ListOrders.jsp実物相当)"() {
+        given: "ListOrders.jsp相当(;jsessionid=挿入込み・fmt:formatNumberが実機で生値を出す既知挙動)"
+        String html = '''
+            <table align="center" bgcolor="#008800" border="0" cellspacing="2" cellpadding="3">
+              <tr bgcolor="#CCCCCC">  <td><b>Order ID</b></td>  <td><b>Date</b></td>  <td><b>Total Price</b></td>  </tr>
+              <tr bgcolor="#FFFF88">
+              <td><b><a href="/jpetstore/shop/viewOrder.do;jsessionid=ABC?orderId=1001">
+                  <font color="BLACK">1001</font>
+              </a></b></td>
+              <td>2026/08/21 10:00:00</td>
+              <td>16.5</td>
+              </tr>
+              <tr bgcolor="#FFFF88">
+              <td><b><a href="/jpetstore/shop/viewOrder.do;jsessionid=ABC?orderId=1002">
+                  <font color="BLACK">1002</font>
+              </a></b></td>
+              <td>2026/08/21 10:05:00</td>
+              <td>$33.00</td>
+              </tr>
+            </table>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractOrderListRows(html) == [
+                [orderId: "1001", totalPrice: "16.5"],
+                [orderId: "1002", totalPrice: "33.00"],
+        ]
+    }
+
+    def "extractOrderLineRowsはitemId/productName/quantity/unitPriceを抽出する(#51 R8a・ViewOrder.jsp実物相当)"() {
+        given: "getLineItemsByOrderIdがLineItem.itemを埋めないため説明文セルは空白になる(ID-24の前提)"
+        String html = '''
+            <tr bgcolor="#FFFF88">
+            <td><b><a href="/jpetstore/shop/viewItem.do;jsessionid=ABC?itemId=EST-1">
+                <font color="BLACK">EST-1</font>
+            </a></b></td>
+            <td>
+
+
+            </td>
+            <td>2</td>
+            <td align="right">16.5</td>
+            <td align="right">33.0</td>
+            </tr>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractOrderLineRows(html) == [
+                [itemId: "EST-1", productName: "", quantity: "2", unitPrice: "16.5"],
+        ]
+    }
+
+    def "extractOrderLineRowsは商品名セルが埋まっている場合はその文字列を返す(将来の回帰検知用)"() {
+        given:
+        String html = '''
+            <tr bgcolor="#FFFF88">
+            <td><b><a href="viewItem.do?itemId=EST-1">EST-1</a></b></td>
+            <td>Large Angelfish</td>
+            <td>2</td>
+            <td align="right">$16.50</td>
+            <td align="right">$33.00</td>
+            </tr>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractOrderLineRows(html) ==
+                [[itemId: "EST-1", productName: "Large Angelfish", quantity: "2", unitPrice: "16.50"]]
+    }
+
+    def "extractOrderLineRowsは明細行以外の(#付き住所等の)行を誤って拾わない(viewItem.doリンクの有無で判定)"() {
+        given: "ViewOrder.jspの請求先住所行(itemIdリンクを含まない)"
+        String html = '''
+            <tr bgcolor="#FFFF88"><td>First name:</td><td>ABC</td></tr>
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractOrderLineRows(html) == []
+    }
+
+    def "extractOrderTotalはTotal:に続く金額をドル記号・生値どちらでも抽出する(#51 R8a/R8b)"() {
+        expect:
+        LegacyHtmlExtractor.extractOrderTotal(
+                '<td colspan="5" align="right"><b>Total: $33.00</b></td>') == "33.00"
+        LegacyHtmlExtractor.extractOrderTotal(
+                '<td colspan="5" align="right"><b>Total: 33.0</b></td>') == "33.0"
+    }
+
+    def "containsStackTraceは旧側の500エラーページ(NPEのスタックトレース)を検知する(SM-3・ID-14の証拠固定化)"() {
+        expect:
+        LegacyHtmlExtractor.containsStackTrace('''
+            <h1>HTTP Status 500</h1>
+            <p><b>type</b> Exception Report</p>
+            <p><b>root cause</b></p>
+            <pre>java.lang.NullPointerException
+	at org.springframework.samples.jpetstore.web.struts.ViewOrderAction.doExecute(ViewOrderAction.java:18)
+            </pre>
+        ''')
+        !LegacyHtmlExtractor.containsStackTrace('<html><body>ordinary page, no error here</body></html>')
+    }
+
+    // ---- #51 T4: カート境界値(cart-boundary) ----
+
+    def "extractCartRowsはitemIdと数量入力欄の値を抽出する(#51 cart-boundary・Cart.jsp実物相当)"() {
+        given:
+        String html = '''
+            <input type="text" size="3" name="EST-1" value="2" />
+        '''
+
+        expect:
+        LegacyHtmlExtractor.extractCartRows(html) == [[itemId: "EST-1", quantity: "2"]]
+    }
+
+    def "isCartEmptyはCart.jspの空カート表示文言の有無で判定する"() {
+        expect:
+        LegacyHtmlExtractor.isCartEmpty(
+                '<tr bgcolor="#FFFF88"><td colspan="8"><b>Your cart is empty.</b></td></tr>')
+        !LegacyHtmlExtractor.isCartEmpty('<input type="text" size="3" name="EST-1" value="2" />')
+    }
+
+    def "extractCartSubTotalはSub Total:に続く金額を抽出する"() {
+        expect:
+        LegacyHtmlExtractor.extractCartSubTotal('<b>Sub Total: $33.00</b><br/>') == "33.00"
+    }
 }

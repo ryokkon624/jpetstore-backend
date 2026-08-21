@@ -13,21 +13,16 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.crypto.password.PasswordEncoder
 import spock.lang.Tag
-import spock.lang.Unroll
 
 /**
- * 注文確定系（W1/W2/W3）の新側verify（#48 AC9・AC12・#49 AC4/AC5・dual-tag）。
+ * カート境界値（cart-boundary）の新側verify（#51 AC4・優先度は最後・dual-tag）。
  *
- * <p>コミット済みgolden（legacy採取済み）とのみ比較する。legacyの起動は不要（AC12）。
- * {@code USER_PRIMARY}（D3）は{@link ParityUserFixture}（#51 T1で共通化）で {@code m_account}/
- * {@code m_signon}/{@code m_profile} へ {@code demo_user}/{@code Sprint3-DemoLogin!26} を用意する
- * （{@code R__test_user.sql}は同期しない）。
- * W1={@code order-single-item}(EQUIVALENT)・W2={@code order-multi-item}(EQUIVALENT)・
- * W3={@code order-insufficient-stock}(INTENDED_DIVERGENCE(ID-1))。
+ * <p>{@code Cart}/{@code CartItem}の未踏分岐（{@code removeItemById}の2アウトカム）を境界値で踏む。
+ * {@code demo_user}フィクスチャは{@link ParityUserFixture}を{@code OrderParitySpec}と共用する。
  */
 @Tag("integration")
 @Tag("parity")
-class OrderParitySpec extends ParityIntegrationTestBase {
+class CartParitySpec extends ParityIntegrationTestBase {
 
     @Autowired
     JdbcTemplate jdbcTemplate
@@ -52,23 +47,19 @@ class OrderParitySpec extends ParityIntegrationTestBase {
         fixture.cleanUp()
     }
 
-    @Unroll
-    def "#scenarioId: 新側がcommit済みgoldenと宣言どおりの結果になる(#48 AC9/AC12・#49 AC7)"() {
+    def "cart-boundary: 新側がcommit済みgoldenと宣言どおりの結果になる(#51 AC4/AC7)"() {
         given:
-        ParityGolden golden = ParityGoldenIO.readFromClasspath(scenarioId)
+        ParityGolden golden = ParityGoldenIO.readFromClasspath("cart-boundary")
         NewDbReader db = new NewDbReader(jdbcTemplate)
         NewScenarioRunner runner = new NewScenarioRunner(http, db, userId)
 
         when:
-        ParitySnapshot actual = runner.run(scenarioId)
+        ParitySnapshot actual = runner.run("cart-boundary")
         def result = ParityComparator.compare(
                 golden.scenario, golden.expectation, golden.divergentFields, golden.snapshot, actual)
 
         then:
         result.pass
         // 失敗時はresult.messageにフィールド単位の差分(field=... golden(legacy)=... actual(new)=...)が出る(AC-neg1)
-
-        where:
-        scenarioId << ["order-single-item", "order-multi-item", "order-insufficient-stock"]
     }
 }

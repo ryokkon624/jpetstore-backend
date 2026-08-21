@@ -61,6 +61,11 @@ class LegacyDbReader implements Closeable {
         return queryRow("SELECT ORDERID, TOTALPRICE FROM ORDERS WHERE ORDERID = ?", orderId)
     }
 
+    /** {@code ORDERID}の存在有無（R7の一覧delta検証・R8bの前提「存在しないorderId」の検証に使う）。 */
+    boolean orderExists(long orderId) {
+        return (queryScalar("SELECT COUNT(*) FROM ORDERS WHERE ORDERID = ?", orderId) as Number).longValue() == 1
+    }
+
     List<Map<String, Object>> orderLines(long orderId) {
         return queryRows(
                 "SELECT ITEMID, QUANTITY, UNITPRICE FROM LINEITEM WHERE ORDERID = ? ORDER BY LINENUM", orderId)
@@ -90,6 +95,97 @@ class LegacyDbReader implements Closeable {
 
     void restoreSequenceNextId(String name, long value) {
         update("UPDATE SEQUENCE SET NEXTID = ? WHERE NAME = ?", value, name)
+    }
+
+    // ------------------------------------------------------------------
+    // #51 T1: アカウント系（W4/W5）
+    // ------------------------------------------------------------------
+
+    /** {@code ACCOUNT} の総行数。W4の{@code accountsCreated}（canonical）は本メソッドの前後差分で算出する。 */
+    long accountCount() {
+        return (queryScalar("SELECT COUNT(*) FROM ACCOUNT") as Number).longValue()
+    }
+
+    /**
+     * canonicalのキー名（確定1の14項目）。ordinal位置で対応づける（{@link #accountRow}参照）。
+     *
+     * <p>{@link #queryRow}/{@link #queryRows}は列ラベルを{@code toLowerCase()}するため、SQLの
+     * {@code AS firstName}のようなcamelCaseエイリアスを素通しできない（HSQLDBが列ラベルを一旦
+     * UPPERCASEへ正規化することとも相まって、そのまま使うと{@code firstname}になってしまい、
+     * 新側{@code NewDbReader#accountRow}のcamelCaseキーと一致しなくなる＝実機で確認済み）。
+     * このため{@link #accountRow}は{@link #queryRow}を使わず、SELECT列順とこのリストの対応で
+     * 直接canonicalキーを組み立てる。
+     */
+    private static final List<String> ACCOUNT_CANONICAL_KEYS = [
+            "username", "email", "firstName", "lastName", "status", "address1", "address2", "city",
+            "state", "postalCode", "country", "phone", "languagePreference", "favoriteCategoryId",
+    ]
+
+    /**
+     * username -&gt; アカウント/プロフィールのcanonical14項目（{@code ACCOUNT JOIN PROFILE}・確定1）。
+     * {@code getAccountByUsername}（{@code Account.xml}）と異なり{@code BANNERDATA}へのJOINは行わない
+     * （canonicalの比較対象に{@code bannerName}は含まないため。存在確認は{@link #bannerDataHasCategory}で別途行う）。
+     */
+    Map<String, String> accountRow(String username) {
+        PreparedStatement ps = connection.prepareStatement(
+                """
+                SELECT A.USERID, A.EMAIL, A.FIRSTNAME, A.LASTNAME, A.STATUS, A.ADDR1, A.ADDR2, A.CITY,
+                       A.STATE, A.ZIP, A.COUNTRY, A.PHONE, P.LANGPREF, P.FAVCATEGORY
+                  FROM ACCOUNT A JOIN PROFILE P ON A.USERID = P.USERID
+                 WHERE A.USERID = ?
+                """)
+        try {
+            ps.setString(1, username)
+            def rs = ps.executeQuery()
+            try {
+                if (!rs.next()) {
+                    return null
+                }
+                Map<String, String> row = new LinkedHashMap<>()
+                ACCOUNT_CANONICAL_KEYS.eachWithIndex { String key, int idx ->
+                    Object value = rs.getObject(idx + 1)
+                    row[key] = value == null ? null : value.toString()
+                }
+                return row
+            } finally {
+                rs.close()
+            }
+        } finally {
+            ps.close()
+        }
+    }
+
+    /** {@code BANNERDATA} に指定カテゴリの行が存在するか（W4前提: {@code getAccountByUsername}のINNER JOIN依存）。 */
+    boolean bannerDataHasCategory(String categoryId) {
+        long count = (queryScalar("SELECT COUNT(*) FROM BANNERDATA WHERE FAVCATEGORY = ?", categoryId) as Number).longValue()
+        return count == 1
+    }
+
+    /** {@code SIGNON.PASSWORD}（平文）。W5x前提の「編集前後で不変/一致」確認に使う。 */
+    String signonPassword(String username) {
+        return queryScalar("SELECT PASSWORD FROM SIGNON WHERE USERNAME = ?", username) as String
+    }
+
+    /**
+     * W4/W5xの後始末（AC-neg2）。{@code signon -&gt; profile -&gt; account}の順にDELETEし、各段でaffected rowsを
+     * 検査する（0行ならfail。SM verification対応と同じ規律＝#48/#49の教訓）。
+     */
+    void deleteAccountCascade(String username) {
+        int signonDeleted = update("DELETE FROM SIGNON WHERE USERNAME = ?", username)
+        if (signonDeleted != 1) {
+            throw new IllegalStateException(
+                    "deleteAccountCascade(username=${username}): SIGNON削除行数が${signonDeleted}(期待値=1)")
+        }
+        int profileDeleted = update("DELETE FROM PROFILE WHERE USERID = ?", username)
+        if (profileDeleted != 1) {
+            throw new IllegalStateException(
+                    "deleteAccountCascade(username=${username}): PROFILE削除行数が${profileDeleted}(期待値=1)")
+        }
+        int accountDeleted = update("DELETE FROM ACCOUNT WHERE USERID = ?", username)
+        if (accountDeleted != 1) {
+            throw new IllegalStateException(
+                    "deleteAccountCascade(username=${username}): ACCOUNT削除行数が${accountDeleted}(期待値=1)")
+        }
     }
 
     private Object queryScalar(String sql, Object... params) {
