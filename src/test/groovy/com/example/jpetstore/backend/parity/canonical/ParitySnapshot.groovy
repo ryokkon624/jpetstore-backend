@@ -1,5 +1,7 @@
 package com.example.jpetstore.backend.parity.canonical
 
+import com.fasterxml.jackson.annotation.JsonInclude
+
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -35,8 +37,33 @@ class ParitySnapshot {
     List<Map<String, String>> entries = []
 
     /**
+     * アカウント系canonicalの14項目（#51 T1・確定1）。W4/W5でのみ使用（他シナリオは空Mapのまま）。
+     * キーは {@code username, email, firstName, lastName, status, address1, address2, city, state,
+     * postalCode, country, phone, languagePreference, favoriteCategoryId}。
+     * 既存9golden JSONへのノイズを避けるため空Mapは出力しない（{@code @JsonInclude(NON_EMPTY)}）。
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    Map<String, String> account = [:]
+
+    /** W4のみ使用。{@code account}/{@code m_account} 行数の増分（W1の{@link #ordersCreated}と同じ「1件増えた」比較）。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    Integer accountsCreated
+
+    /** R8a/R8bのみ使用。旧={@code viewOrder.do}のHTTPステータス／新={@code GET /api/orders/&#123;orderId&#125;}のHTTPステータス。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    Integer httpStatus
+
+    /**
+     * R8bのみ使用。本文に例外クラス名／{@code at org.springframework.samples.}フレームが含まれるか
+     * （SM-3・ID-14の証拠を資産として耐久性のある形で固定化する）。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    Boolean stackTraceExposed
+
+    /**
      * 比較前の正規化（AC1/AC3）: {@code inventoryDelta} をキー昇順に、{@code lines} をitemId昇順に、
      * {@code entries} を各エントリのcanonicalキー昇順に並べ替え、金額はscale(2)へ揃える。
+     * {@code account} はキー昇順のTreeMapへ揃える（#51 T1）。
      * 呼び出し元の状態は変更しない（新しいインスタンスを返す）。
      */
     ParitySnapshot normalize() {
@@ -47,6 +74,10 @@ class ParitySnapshot {
         result.orderTotal = normalizeAmount(orderTotal)
         result.lines = (lines ?: []).collect { Line line -> line.normalize() }.sort { it.itemId }
         result.entries = (entries ?: []).collect { normalizeEntry(it) }.sort { canonicalKey(it) }
+        result.account = account ? new TreeMap<String, String>(account) : [:]
+        result.accountsCreated = accountsCreated
+        result.httpStatus = httpStatus
+        result.stackTraceExposed = stackTraceExposed
         return result
     }
 
@@ -72,11 +103,16 @@ class ParitySnapshot {
         Integer quantity
         String unitPrice
 
+        /** R8aのみ使用（Q6・ID-24の観測点）。旧="" (getLineItemsByOrderIdがLineItem.itemを埋めないため)／新=JOIN済みの実名。 */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String productName
+
         Line normalize() {
             Line result = new Line()
             result.itemId = itemId
             result.quantity = quantity
             result.unitPrice = ParitySnapshot.normalizeAmount(unitPrice)
+            result.productName = productName
             return result
         }
 
@@ -86,17 +122,18 @@ class ParitySnapshot {
                 return false
             }
             Line that = (Line) other
-            return itemId == that.itemId && quantity == that.quantity && unitPrice == that.unitPrice
+            return itemId == that.itemId && quantity == that.quantity && unitPrice == that.unitPrice &&
+                    productName == that.productName
         }
 
         @Override
         int hashCode() {
-            return Objects.hash(itemId, quantity, unitPrice)
+            return Objects.hash(itemId, quantity, unitPrice, productName)
         }
 
         @Override
         String toString() {
-            return "Line(itemId=${itemId}, quantity=${quantity}, unitPrice=${unitPrice})"
+            return "Line(itemId=${itemId}, quantity=${quantity}, unitPrice=${unitPrice}, productName=${productName})"
         }
     }
 }
