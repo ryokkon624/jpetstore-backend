@@ -422,9 +422,21 @@ class NewScenarioRunner {
      * 同一の{@code AccessDeniedException}にし{@code GlobalExceptionHandler}が403へ正規化する（Q1・ID-14）。
      * {@code stackTraceExposed}は本文に例外クラス名/スタックフレームが含まれないことを実際に確認して求める
      * （決め打ちのfalseにしない）。
+     *
+     * <p>SM verification対応（Sprint21所見①と同型）: {@code GET /api/orders/{orderId}}は不在/非所有を
+     * 同一の403にする（列挙封じ・訂正A）ため、前提（指定orderIdが実在しない）が採取時に崩れても
+     * スナップショット（403・stackTraceExposed=false）だけでは区別できず、ID-14の観測点が静かに
+     * 失われる。旧側（{@code LegacyScenarioRunner#orderDetailMissing}）と対称に、新側でも実行前に
+     * DBへ問い合わせて前提を検証し、満たさなければ専用メッセージでfailさせる。
      */
     private ParitySnapshot orderDetailMissing() {
         long missingOrderId = 999999999L
+        if (db.orderExists(missingOrderId)) {
+            throw new IllegalStateException(
+                    "R8b(order-detail-missing)の前提が不成立: orderId=${missingOrderId}が新側DBに実在する。" +
+                            "ID-14の観測点(403がstale-session/不正ID起因であること)が成立しない。")
+        }
+
         def response = http.get("/api/orders/${missingOrderId}")
 
         ParitySnapshot snapshot = new ParitySnapshot()

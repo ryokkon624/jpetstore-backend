@@ -42,6 +42,15 @@ class NewDbReader {
         return jdbcTemplate.queryForMap("SELECT order_id, total_price FROM t_order WHERE order_id = ?", orderId)
     }
 
+    /**
+     * {@code order_id}の存在有無（R8bの前提「指定orderIdが存在しない」の検証に使う。SM verification対応：
+     * {@code capture.LegacyDbReader#orderExists}と対称に新側にも用意する）。
+     */
+    boolean orderExists(long orderId) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM t_order WHERE order_id = ?", Integer, orderId)
+        return count != null && count > 0
+    }
+
     List<Map<String, Object>> orderLines(long orderId) {
         return jdbcTemplate.queryForList(
                 "SELECT item_id, quantity, unit_price FROM t_order_line WHERE order_id = ? ORDER BY line_num", orderId)
