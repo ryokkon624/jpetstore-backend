@@ -1,0 +1,30 @@
+{
+  "scenario" : "order-detail-own",
+  "expectation" : "INTENDED_DIVERGENCE(ID-24)",
+  "divergenceId" : "ID-24",
+  "divergentFields" : [ "lines[EST-1].productName" ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-21T04:36:55.639377400Z"
+  },
+  "preconditions" : {
+    "1002" : {
+      "orderExists" : true,
+      "legacyProductNameBlank" : "true"
+    }
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : "33.00",
+    "lines" : [ {
+      "itemId" : "EST-1",
+      "quantity" : 2,
+      "unitPrice" : "16.50",
+      "productName" : ""
+    } ],
+    "entries" : [ ],
+    "httpStatus" : 200
+  }
+}

@@ -8,6 +8,7 @@ import com.example.jpetstore.backend.parity.verify.NewDbReader
 import com.example.jpetstore.backend.parity.verify.NewHttpClient
 import com.example.jpetstore.backend.parity.verify.NewScenarioRunner
 import com.example.jpetstore.backend.parity.verify.ParityIntegrationTestBase
+import com.example.jpetstore.backend.parity.verify.ParityUserFixture
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -18,8 +19,9 @@ import spock.lang.Unroll
  * 注文確定系（W1/W2/W3）の新側verify（#48 AC9・AC12・#49 AC4/AC5・dual-tag）。
  *
  * <p>コミット済みgolden（legacy採取済み）とのみ比較する。legacyの起動は不要（AC12）。
- * {@code USER_PRIMARY}（D3）は本specのフィクスチャで {@code m_account}/{@code m_signon} へ
- * {@code demo_user}/{@code Sprint3-DemoLogin!26} をINSERTして用意する（{@code R__test_user.sql}は同期しない）。
+ * {@code USER_PRIMARY}（D3）は{@link ParityUserFixture}（#51 T1で共通化）で {@code m_account}/
+ * {@code m_signon}/{@code m_profile} へ {@code demo_user}/{@code Sprint3-DemoLogin!26} を用意する
+ * （{@code R__test_user.sql}は同期しない）。
  * W1={@code order-single-item}(EQUIVALENT)・W2={@code order-multi-item}(EQUIVALENT)・
  * W3={@code order-insufficient-stock}(INTENDED_DIVERGENCE(ID-1))。
  */
@@ -27,65 +29,27 @@ import spock.lang.Unroll
 @Tag("parity")
 class OrderParitySpec extends ParityIntegrationTestBase {
 
-    private static final String USERNAME = "demo_user"
-    private static final String PASSWORD = "Sprint3-DemoLogin!26"
-
     @Autowired
     JdbcTemplate jdbcTemplate
 
     @Autowired
     PasswordEncoder passwordEncoder
 
+    ParityUserFixture fixture
     NewHttpClient http
     long userId
 
     void setup() {
-        cleanupFixtures()
-        jdbcTemplate.update(
-                """
-                INSERT INTO m_account
-                    (username, email, first_name, last_name, status, address1, city, state, postal_code, country, phone,
-                     create_program, update_program)
-                VALUES (?, 'demo_user@example.com', 'Demo', 'User', 'OK',
-                     '901 San Antonio Road', 'Palo Alto', 'CA', '94303', 'USA', '555-0100',
-                     'PARITY_FIXTURE', 'PARITY_FIXTURE')
-                """,
-                USERNAME)
-        userId = jdbcTemplate.queryForObject("SELECT user_id FROM m_account WHERE username = ?", Long, USERNAME)
-        jdbcTemplate.update(
-                """
-                INSERT INTO m_signon (user_id, password_hash, create_program, update_program)
-                VALUES (?, ?, 'PARITY_FIXTURE', 'PARITY_FIXTURE')
-                """,
-                userId, passwordEncoder.encode(PASSWORD))
+        fixture = new ParityUserFixture(jdbcTemplate, passwordEncoder)
+        userId = fixture.setUp()
 
         http = new NewHttpClient(baseUrl())
-        def loginResponse = http.login(USERNAME, PASSWORD)
+        def loginResponse = http.login(ParityUserFixture.USERNAME, ParityUserFixture.PASSWORD)
         assert loginResponse.statusCode() == 200: "demo_userログインに失敗: ${loginResponse.statusCode()} ${loginResponse.body()}"
     }
 
     void cleanup() {
-        cleanupFixtures()
-    }
-
-    private void cleanupFixtures() {
-        jdbcTemplate.update(
-                "DELETE FROM t_cart_item WHERE cart_id IN (SELECT cart_id FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?))",
-                USERNAME)
-        jdbcTemplate.update(
-                "DELETE FROM t_cart WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
-        jdbcTemplate.update(
-                "DELETE FROM t_order_line WHERE order_id IN (SELECT order_id FROM t_order WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?))",
-                USERNAME)
-        jdbcTemplate.update(
-                "DELETE FROM t_audit_log WHERE actor_user_id IN (SELECT user_id FROM m_account WHERE username = ?)",
-                USERNAME)
-        jdbcTemplate.update(
-                "DELETE FROM t_order WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
-        jdbcTemplate.update("DELETE FROM t_login_attempt WHERE username = ?", USERNAME)
-        jdbcTemplate.update(
-                "DELETE FROM m_signon WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)", USERNAME)
-        jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", USERNAME)
+        fixture.cleanUp()
     }
 
     @Unroll

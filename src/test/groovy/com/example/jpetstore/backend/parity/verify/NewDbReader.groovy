@@ -62,4 +62,76 @@ class NewDbReader {
                 "DELETE FROM t_cart_item WHERE cart_id IN (SELECT cart_id FROM t_cart WHERE user_id = ?)", userId)
         jdbcTemplate.update("DELETE FROM t_cart WHERE user_id = ?", userId)
     }
+
+    // ------------------------------------------------------------------
+    // #51 T1: アカウント系（W4/W5）
+    // ------------------------------------------------------------------
+
+    /** {@code m_account} の総行数。W4の{@code accountsCreated}（canonical）は本メソッドの前後差分で算出する。 */
+    long accountCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM m_account", Long)
+    }
+
+    Long findUserIdByUsername(String username) {
+        return jdbcTemplate.queryForObject("SELECT user_id FROM m_account WHERE username = ?", Long, username)
+    }
+
+    /**
+     * canonicalのキー名（確定1の14項目）。ordinal位置で対応づける（{@link #accountRow}参照）。
+     *
+     * <p>{@code LegacyDbReader#accountRow}と同じ理由（列ラベルのcamelCaseがドライバ/DB実装依存で
+     * 素通しされない場合がある）で、{@link #accountRow}はSELECT列順とこのリストの対応で直接
+     * canonicalキーを組み立てる（{@code queryForMap}の列ラベル依存にしない・両側対称の防御的設計）。
+     */
+    private static final List<String> ACCOUNT_CANONICAL_KEYS = [
+            "username", "email", "firstName", "lastName", "status", "address1", "address2", "city",
+            "state", "postalCode", "country", "phone", "languagePreference", "favoriteCategoryId",
+    ]
+
+    /**
+     * username -&gt; アカウント/プロフィールのcanonical14項目（{@code m_account JOIN m_profile}・確定1）。
+     * 旧の{@code LegacyDbReader#accountRow}と対称（design §4「canonicalは両側ともDB直読みで組む」・SM-4）。
+     */
+    Map<String, String> accountRow(String username) {
+        List<Map<String, String>> rows = jdbcTemplate.query(
+                """
+                SELECT A.username, A.email, A.first_name, A.last_name, A.status, A.address1,
+                       A.address2, A.city, A.state, A.postal_code, A.country, A.phone,
+                       P.language_preference, P.favorite_category_id
+                  FROM m_account A JOIN m_profile P ON A.user_id = P.user_id
+                 WHERE A.username = ?
+                """,
+                { rs, rowNum ->
+                    Map<String, String> row = new LinkedHashMap<>()
+                    ACCOUNT_CANONICAL_KEYS.eachWithIndex { String key, int idx ->
+                        Object value = rs.getObject(idx + 1)
+                        row[key] = value == null ? null : value.toString()
+                    }
+                    return row
+                },
+                username)
+        return rows.isEmpty() ? null : rows[0]
+    }
+
+    String signonPasswordHash(long userId) {
+        return jdbcTemplate.queryForObject("SELECT password_hash FROM m_signon WHERE user_id = ?", String, userId)
+    }
+
+    /**
+     * W4/W5xの後始末（AC-neg2）。{@code t_register_attempt}/{@code t_login_attempt}も対象に含める
+     * （ID-11のレート制限に再実行で引っかからないため。既存{@code OrderParitySpec}の作法を踏襲）。
+     */
+    void deleteAccountCascade(String username) {
+        jdbcTemplate.update(
+                "DELETE FROM t_audit_log WHERE actor_user_id IN (SELECT user_id FROM m_account WHERE username = ?)",
+                username)
+        jdbcTemplate.update(
+                "DELETE FROM m_profile WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)",
+                username)
+        jdbcTemplate.update(
+                "DELETE FROM m_signon WHERE user_id IN (SELECT user_id FROM m_account WHERE username = ?)",
+                username)
+        jdbcTemplate.update("DELETE FROM t_login_attempt WHERE username = ?", username)
+        jdbcTemplate.update("DELETE FROM m_account WHERE username = ?", username)
+    }
 }

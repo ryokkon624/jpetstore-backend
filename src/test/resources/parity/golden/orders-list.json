@@ -1,5 +1,5 @@
 {
-  "scenario" : "categories",
+  "scenario" : "orders-list",
   "expectation" : "EQUIVALENT",
   "divergenceId" : null,
   "divergentFields" : [ ],
@@ -14,15 +14,9 @@
     "orderTotal" : null,
     "lines" : [ ],
     "entries" : [ {
-      "categoryId" : "BIRDS"
+      "totalPrice" : "16.50"
     }, {
-      "categoryId" : "CATS"
-    }, {
-      "categoryId" : "DOGS"
-    }, {
-      "categoryId" : "FISH"
-    }, {
-      "categoryId" : "REPTILES"
+      "totalPrice" : "33.00"
     } ]
   }
 }

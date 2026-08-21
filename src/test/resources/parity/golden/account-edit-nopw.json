@@ -1,0 +1,34 @@
+{
+  "scenario" : "account-edit-nopw",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-21T04:36:55.639377400Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ ],
+    "account" : {
+      "address1" : "6 Parity Way",
+      "address2" : "",
+      "city" : "Palo Alto",
+      "country" : "USA",
+      "email" : "parity_w5a.edited@example.com",
+      "favoriteCategoryId" : "DOGS",
+      "firstName" : "Parity",
+      "languagePreference" : "english",
+      "lastName" : "W5-Edited",
+      "phone" : "555-0106",
+      "postalCode" : "94304",
+      "state" : "CA",
+      "status" : "OK",
+      "username" : "parity_w5a"
+    }
+  }
+}
