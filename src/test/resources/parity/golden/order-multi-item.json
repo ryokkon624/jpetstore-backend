@@ -1,0 +1,29 @@
+{
+  "scenario" : "order-multi-item",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:49:38.774555800Z"
+  },
+  "snapshot" : {
+    "outcome" : "SUCCESS",
+    "inventoryDelta" : {
+      "EST-1" : -2,
+      "EST-4" : -3
+    },
+    "ordersCreated" : 1,
+    "orderTotal" : "88.50",
+    "lines" : [ {
+      "itemId" : "EST-1",
+      "quantity" : 2,
+      "unitPrice" : "16.50"
+    }, {
+      "itemId" : "EST-4",
+      "quantity" : 3,
+      "unitPrice" : "18.50"
+    } ],
+    "entries" : [ ]
+  }
+}

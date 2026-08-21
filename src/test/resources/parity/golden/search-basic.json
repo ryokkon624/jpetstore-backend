@@ -1,0 +1,72 @@
+{
+  "scenario" : "search-basic",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:49:38.774555800Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ {
+      "productId" : "FI-FW-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "FI-FW-02",
+      "query" : "fish dog"
+    }, {
+      "productId" : "FI-SW-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "FI-SW-02",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-BD-01",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-BD-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-CW-01",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-CW-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-DL-01",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-DL-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-PO-02",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-PO-02",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-RT-01",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-RT-01",
+      "query" : "fish dog"
+    }, {
+      "productId" : "K9-RT-02",
+      "query" : "dog"
+    }, {
+      "productId" : "K9-RT-02",
+      "query" : "fish dog"
+    }, {
+      "productId" : "RP-SN-01",
+      "query" : "dog"
+    }, {
+      "productId" : "RP-SN-01",
+      "query" : "fish dog"
+    } ]
+  }
+}

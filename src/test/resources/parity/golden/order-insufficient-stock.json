@@ -1,0 +1,30 @@
+{
+  "scenario" : "order-insufficient-stock",
+  "expectation" : "INTENDED_DIVERGENCE(ID-1)",
+  "divergenceId" : "ID-1",
+  "divergentFields" : [ "outcome", "inventoryDelta[EST-1]", "ordersCreated", "orderTotal", "lines[EST-1].quantity", "lines[EST-1].unitPrice" ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:49:38.774555800Z"
+  },
+  "preconditions" : {
+    "EST-1" : {
+      "qtyBefore" : 1,
+      "qtyAfter" : -1
+    }
+  },
+  "snapshot" : {
+    "outcome" : "SUCCESS",
+    "inventoryDelta" : {
+      "EST-1" : -2
+    },
+    "ordersCreated" : 1,
+    "orderTotal" : "33.00",
+    "lines" : [ {
+      "itemId" : "EST-1",
+      "quantity" : 2,
+      "unitPrice" : "16.50"
+    } ],
+    "entries" : [ ]
+  }
+}

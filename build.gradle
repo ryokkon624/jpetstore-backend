@@ -23,6 +23,10 @@ configurations {
     }
 
     mybatisGenerator
+
+    // [L2] #48 Q2: legacy HSQLDB(1.8.0.10)への直結読み出し専用。testImplementationには入れない
+    // (既存IT26本のclasspath・Spring Bootの組み込みDB判定への影響を避けるため)。
+    parityLegacyJdbc
 }
 
 repositories {
@@ -83,6 +87,9 @@ dependencies {
     testImplementation 'org.flywaydb:flyway-mysql'
 
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // [L2] #48 Q2: captureGolden専用のlegacy HSQLDBドライバ(testImplementationには入れない)。
+    parityLegacyJdbc 'hsqldb:hsqldb:1.8.0.10'
 }
 
 // UT用タスク（integration タグは除外）
@@ -94,13 +101,26 @@ tasks.named('test') {
 }
 
 // IT用タスク（integration タグのみ。Testcontainers で Docker が必要）
+// [L2] #48 AC11: parityタグは二重実行を避けるため除外する(parityTestが別途担当する)。
 tasks.register('integrationTest', Test) {
     group = 'verification'
     description = 'Runs integration tests (Testcontainers, requires Docker).'
     useJUnitPlatform {
         includeTags 'integration'
+        excludeTags 'parity'
     }
     shouldRunAfter test
+}
+
+// [L2] #48 AC11/AC12: L2パリティ検証専用タスク。dual-tag(integration+parity)のSpecのみを対象にする。
+// legacy起動は不要(golden JSONとのみ比較・AC12)。checkには載せない(当面ローカル/手動ゲート)。
+tasks.register('parityTest', Test) {
+    group = 'verification'
+    description = '[L2] Runs parity specs against committed golden JSON (Testcontainers, requires Docker; legacy NOT required).'
+    useJUnitPlatform {
+        includeTags 'parity'
+    }
+    shouldRunAfter integrationTest
 }
 
 check {
@@ -126,6 +146,17 @@ jacoco {
 
 jacocoTestReport {
     dependsOn test
+}
+
+// [L2] #48 AC6/AC7: legacyを実際に駆動しgolden JSONを生成する手動実行タスク(legacy起動が前提)。
+// システムプロパティ(-Dparity.legacy.baseUrl等)で接続先を差し替え可能(F2)。
+tasks.register('captureGolden', JavaExec) {
+    group = 'verification'
+    description = '[L2] Drive legacy and (re)generate golden JSON (requires legacy running).'
+
+    classpath = sourceSets.test.runtimeClasspath + configurations.parityLegacyJdbc
+    mainClass = 'com.example.jpetstore.backend.parity.capture.LegacyCaptureTool'
+    systemProperties = System.properties.findAll { k, v -> k.toString().startsWith('parity.') }
 }
 
 tasks.register('generateEnums', JavaExec) {

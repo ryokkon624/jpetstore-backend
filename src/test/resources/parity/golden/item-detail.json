@@ -1,0 +1,22 @@
+{
+  "scenario" : "item-detail",
+  "expectation" : "EQUIVALENT",
+  "divergenceId" : null,
+  "divergentFields" : [ ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:49:38.774555800Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ {
+      "itemId" : "EST-1",
+      "listPrice" : "16.5",
+      "productName" : "Angelfish"
+    } ]
+  }
+}

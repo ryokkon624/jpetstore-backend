@@ -1,0 +1,114 @@
+{
+  "scenario" : "search-wildcard",
+  "expectation" : "INTENDED_DIVERGENCE(ID-29)",
+  "divergenceId" : "ID-29",
+  "divergentFields" : [ "entries" ],
+  "capturedFrom" : {
+    "legacyCommit" : "9bdb187ef6de092e02f85687a9b44331899d4f83",
+    "capturedAt" : "2026-08-20T06:49:38.774555800Z"
+  },
+  "snapshot" : {
+    "outcome" : null,
+    "inventoryDelta" : { },
+    "ordersCreated" : null,
+    "orderTotal" : null,
+    "lines" : [ ],
+    "entries" : [ {
+      "productId" : "AV-CB-01",
+      "query" : "%"
+    }, {
+      "productId" : "AV-CB-01",
+      "query" : "_"
+    }, {
+      "productId" : "AV-SB-02",
+      "query" : "%"
+    }, {
+      "productId" : "AV-SB-02",
+      "query" : "_"
+    }, {
+      "productId" : "FI-FW-01",
+      "query" : "%"
+    }, {
+      "productId" : "FI-FW-01",
+      "query" : "_"
+    }, {
+      "productId" : "FI-FW-02",
+      "query" : "%"
+    }, {
+      "productId" : "FI-FW-02",
+      "query" : "_"
+    }, {
+      "productId" : "FI-SW-01",
+      "query" : "%"
+    }, {
+      "productId" : "FI-SW-01",
+      "query" : "_"
+    }, {
+      "productId" : "FI-SW-02",
+      "query" : "%"
+    }, {
+      "productId" : "FI-SW-02",
+      "query" : "_"
+    }, {
+      "productId" : "FL-DLH-02",
+      "query" : "%"
+    }, {
+      "productId" : "FL-DLH-02",
+      "query" : "_"
+    }, {
+      "productId" : "FL-DSH-01",
+      "query" : "%"
+    }, {
+      "productId" : "FL-DSH-01",
+      "query" : "_"
+    }, {
+      "productId" : "K9-BD-01",
+      "query" : "%"
+    }, {
+      "productId" : "K9-BD-01",
+      "query" : "_"
+    }, {
+      "productId" : "K9-CW-01",
+      "query" : "%"
+    }, {
+      "productId" : "K9-CW-01",
+      "query" : "_"
+    }, {
+      "productId" : "K9-DL-01",
+      "query" : "%"
+    }, {
+      "productId" : "K9-DL-01",
+      "query" : "_"
+    }, {
+      "productId" : "K9-PO-02",
+      "query" : "%"
+    }, {
+      "productId" : "K9-PO-02",
+      "query" : "_"
+    }, {
+      "productId" : "K9-RT-01",
+      "query" : "%"
+    }, {
+      "productId" : "K9-RT-01",
+      "query" : "_"
+    }, {
+      "productId" : "K9-RT-02",
+      "query" : "%"
+    }, {
+      "productId" : "K9-RT-02",
+      "query" : "_"
+    }, {
+      "productId" : "RP-LI-02",
+      "query" : "%"
+    }, {
+      "productId" : "RP-LI-02",
+      "query" : "_"
+    }, {
+      "productId" : "RP-SN-01",
+      "query" : "%"
+    }, {
+      "productId" : "RP-SN-01",
+      "query" : "_"
+    } ]
+  }
+}
